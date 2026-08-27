@@ -6,4 +6,8 @@ The complete pinned upstream source is included as the `gmessages/` submodule, i
 
 Upstream: `https://github.com/mautrix/gmessages`, package `go.mau.fi/mautrix-gmessages/pkg/libgm`, pinned to tag `v0.2608.0`, commit `9743919f4884327db998fe0f227c073f3f3aceb3`, reviewed on 2026-08-27. The current adapter imports this pinned source and does not expose raw protobuf or authentication data over IPC.
 
-The production source-offer procedure is to publish the exact deployed adapter source and corresponding pinned upstream source at a stable public URL, include the offer URL in service documentation and deployment metadata, and retain matching source for every deployed revision. Legal must approve the final notice and hosting arrangement before enabling public real-mode service.
+## Source Offer
+
+The source offer must identify the exact deployed revisions, not a mutable branch, tag, or placeholder. For the currently reviewed source, the adapter is at repository commit https://github.com/mynameistito/gmessages-cf/commit/93c9ea8e92959d48c3d94daf0130d7c3777ef5f5 and the pinned upstream is at https://github.com/mautrix/gmessages/commit/9743919f4884327db998fe0f227c073f3f3aceb3. The deployed service must retain matching source for every revision and expose these exact URLs through its public source-offer notice.
+
+Legal review of the final notice and hosting arrangement is pending. Real-mode production must not be enabled on the basis of this documentation alone.

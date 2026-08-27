@@ -1,6 +1,6 @@
 # gmessages-cf
 
-Cloudflare-native Google Messages MCP service. It exposes a small Streamable HTTP MCP surface for one personal, authenticated message session. The default implementation is deterministic fake mode; real mode is explicitly configured and remains subject to the compliance and operational gates in `PLAN.md`.
+Cloudflare-native Google Messages MCP service. It exposes a small Streamable HTTP MCP surface for one personal, authenticated message session. Fake mode is the credential-free supported path. Real mode is explicitly configured and remains blocked until legal review, integration, source-offer, and operational gates are complete.
 
 ## Current Slice
 
@@ -14,7 +14,7 @@ This repository currently provides:
 - Alchemy-owned Worker, D1, R2, and Durable Object declarations
 - D1 schema for messages, sync, attachments, reactions, receipts, and outbox records
 
-The real `libgm` daemon, D1/R2 adapters, Access resources, Durable Object session boundary, encrypted recovery, and event ingestion are implemented behind explicit real-mode configuration. Pairing UI and full integration suites remain future milestones.
+The real `libgm` daemon, D1/R2 adapters, Access resources, Durable Object session boundary, encrypted recovery, and event ingestion are implemented behind explicit real-mode configuration. Pairing UI and full integration suites remain future milestones; this does not represent legal approval or Google support.
 
 ## Local Development
 
@@ -66,8 +66,10 @@ The upstream protocol is unofficial and can change. This project will only use l
 
 ## Documents
 
-- `PLAN.md`: ordered production-readiness implementation plan
-- `CONTEXT.md`: current architecture, decisions, verification state, and new-chat handoff
+- `LICENSE`: GNU Affero General Public License, version 3 or later
+- `NOTICE`: project and upstream attribution plus source revisions
+- `SECURITY.md`: private vulnerability reporting
+- `CONTRIBUTING.md`: credential-free development and contribution guidance
 - `docs/architecture.md`: boundaries, lifecycle, and recovery design
 - `docs/security.md`: Access, secrets, storage, and threat model
 - `docs/licensing.md`: upstream attribution and AGPL decision
