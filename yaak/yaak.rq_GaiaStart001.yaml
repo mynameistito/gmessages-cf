@@ -1,0 +1,48 @@
+type: http_request
+model: http_request
+id: rq_GaiaStart001
+createdAt: 2026-08-28T00:00:00
+updatedAt: 2026-08-28T00:00:00
+workspaceId: wk_UkmudYKHUW
+folderId: fl_yW9ZzDLnxD
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "cookies": {
+        "SAPISID": "PASTE_COOKIE_VALUE",
+        "__Secure-1PSID": "PASTE_COOKIE_VALUE"
+      }
+    }
+bodyType: application/json
+description: Start Google Account pairing. Replace the placeholder cookie values locally and never commit real cookies.
+headers:
+  - enabled: true
+    name: Content-Type
+    value: application/json
+    id: hdr_gaia_start_content
+  - enabled: true
+    name: x-gmessages-test-token
+    value: local-admin-token
+    id: hdr_gaia_start_token
+method: POST
+name: Start Account Pairing
+sortPriority: 1.0
+url: http://127.0.0.1:1337/admin/pair/account/start
+urlParameters: []
+settingSendCookies:
+  enabled: false
+  value: true
+settingStoreCookies:
+  enabled: false
+  value: true
+settingValidateCertificates:
+  enabled: false
+  value: true
+settingFollowRedirects:
+  enabled: false
+  value: true
+settingRequestTimeout:
+  enabled: false
+  value: 0

@@ -1,0 +1,13 @@
+type: folder
+model: folder
+id: fl_yW9ZzDLnxD
+createdAt: 2026-08-27T00:00:00.000
+updatedAt: 2026-08-27T00:00:00.000
+workspaceId: wk_UkmudYKHUW
+folderId: null
+authentication: {}
+authenticationType: null
+description: Real-mode local Google Messages pairing
+headers: []
+name: Pairing and Health
+sortPriority: 0

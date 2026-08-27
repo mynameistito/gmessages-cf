@@ -1,0 +1,3 @@
+[submodule "gmessages"]
+	path = gmessages
+	url = https://github.com/mautrix/gmessages.git

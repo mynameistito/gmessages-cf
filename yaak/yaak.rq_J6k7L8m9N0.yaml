@@ -1,0 +1,46 @@
+type: http_request
+model: http_request
+id: rq_J6k7L8m9N0
+createdAt: 2026-08-27T00:00:00
+updatedAt: 2026-08-27T14:09:08.607209700
+workspaceId: wk_UkmudYKHUW
+folderId: fl_McpTst1234
+authentication: {}
+authenticationType: null
+body:
+  text: '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"messages.search","arguments":{"query":"hone"}}}'
+bodyType: application/json
+description: Search locally synced message text.
+headers:
+  - enabled: true
+    name: Accept
+    value: application/json, text/event-stream
+    id: hdr_search_accept
+  - enabled: true
+    name: Content-Type
+    value: application/json
+    id: hdr_search_content
+  - enabled: true
+    name: x-gmessages-test-token
+    value: local-mcp-token
+    id: hdr_search_token
+method: POST
+name: Search Messages
+sortPriority: 5.0
+url: http://127.0.0.1:1337/mcp
+urlParameters: []
+settingSendCookies:
+  enabled: false
+  value: true
+settingStoreCookies:
+  enabled: false
+  value: true
+settingValidateCertificates:
+  enabled: false
+  value: true
+settingFollowRedirects:
+  enabled: false
+  value: true
+settingRequestTimeout:
+  enabled: false
+  value: 0

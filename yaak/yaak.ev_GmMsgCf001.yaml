@@ -1,0 +1,25 @@
+type: environment
+model: environment
+id: ev_GmMsgCf001
+createdAt: 2026-08-27T00:00:00.000
+updatedAt: 2026-08-27T00:00:00.000
+workspaceId: wk_UkmudYKHUW
+name: Local
+public: true
+parentModel: workspace
+parentId: null
+variables:
+  - enabled: true
+    name: base_url
+    value: http://127.0.0.1:1337
+  - enabled: true
+    name: admin_token
+    value: local-admin-token
+  - enabled: true
+    name: mcp_token
+    value: local-mcp-token
+  - enabled: true
+    name: conversation_id
+    value: REPLACE_WITH_ID_FROM_LIST_CONVERSATIONS
+color: null
+sortPriority: 0

@@ -1,0 +1,44 @@
+type: http_request
+model: http_request
+id: rq_O1p2Q3r4S5
+createdAt: 2026-08-27T00:00:00.000
+updatedAt: 2026-08-27T00:00:00.000
+workspaceId: wk_UkmudYKHUW
+folderId: fl_McpTst1234
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "tools/call",
+      "params": {
+        "name": "messages.send",
+        "arguments": {
+          "conversationId": "REPLACE_WITH_ID_FROM_LIST_CONVERSATIONS",
+          "idempotencyKey": "yaak-test-key-1",
+          "text": "Hello from Yaak"
+        }
+      }
+    }
+bodyType: application/json
+description: Send one message after replacing the conversation ID, idempotency key, and text.
+headers:
+  - enabled: true
+    name: Accept
+    value: application/json, text/event-stream
+    id: hdr_send_accept
+  - enabled: true
+    name: Content-Type
+    value: application/json
+    id: hdr_send_content
+  - enabled: true
+    name: x-gmessages-test-token
+    value: local-mcp-token
+    id: hdr_send_token
+method: POST
+name: Send Message
+sortPriority: 6
+url: http://127.0.0.1:1337/mcp
+urlParameters: []

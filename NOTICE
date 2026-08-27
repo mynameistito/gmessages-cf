@@ -1,0 +1,22 @@
+gmessages-cf
+
+Copyright (C) 2026 mynameistito.
+
+This project is licensed under the GNU Affero General Public License, version 3
+or any later version. See LICENSE.
+
+The Go adapter in adapter/ is an original project component released under the
+same license. The adapter links against and is distributed with the pinned
+mautrix/gmessages source in gmessages/. That upstream source is Copyright (C)
+its respective authors and contributors and is licensed under the GNU Affero
+General Public License, version 3. See gmessages/LICENSE and
+gmessages/LICENSE.exceptions for its notices and exceptions.
+
+The adapter revision currently documented for source availability is:
+https://github.com/mynameistito/gmessages-cf/commit/93c9ea8e92959d48c3d94daf0130d7c3777ef5f5
+
+The pinned upstream revision is:
+https://github.com/mautrix/gmessages/commit/9743919f4884327db998fe0f227c073f3f3aceb3
+
+The final deployed source-offer notice and hosting arrangement remain subject
+to legal review. No legal approval is represented by this notice.
