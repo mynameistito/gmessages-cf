@@ -34,8 +34,11 @@ const localAuth = accessAuthenticationTest({
 let eventConsumerStarted = false;
 
 const selectAuthenticationLayer = (env: WorkerEnv) => {
-  if (env.GMESSAGES_AUTH_MODE !== "access") {
+  if (env.GMESSAGES_AUTH_MODE === "test") {
     return localAuth;
+  }
+  if (env.GMESSAGES_AUTH_MODE !== "access") {
+    return;
   }
   if (
     env.GMESSAGES_ACCESS_AUDIENCE === undefined ||
@@ -51,12 +54,25 @@ const selectAuthenticationLayer = (env: WorkerEnv) => {
   });
 };
 
+const isMcpAuthorized = (
+  url: URL,
+  env: WorkerEnv,
+  principalType: "service" | "user"
+) =>
+  principalType === "service" &&
+  (env.GMESSAGES_HOSTNAME === undefined ||
+    url.hostname === env.GMESSAGES_HOSTNAME);
+
 const handlePairingRequest = async (
   request: Request,
   env: WorkerEnv,
-  isUser: boolean
+  principalType: "service" | "user"
 ): Promise<Response> => {
-  if (!isUser) {
+  if (
+    principalType !== "user" ||
+    env.GMESSAGES_ADMIN_HOSTNAME === undefined ||
+    new URL(request.url).hostname !== env.GMESSAGES_ADMIN_HOSTNAME
+  ) {
     return new Response("Forbidden", { status: 403 });
   }
   if (env.GMESSAGES_MODE !== "real") {
@@ -88,6 +104,29 @@ const handlePairingRequest = async (
   });
 };
 
+const handleAttachmentRequest = async (
+  url: URL,
+  env: WorkerEnv
+): Promise<Response> => {
+  const attachmentId = url.pathname.slice("/attachments/".length);
+  const bucket = env.ATTACHMENTS;
+  if (bucket === undefined || attachmentId.length === 0) {
+    return new Response("Not found", { status: 404 });
+  }
+  const object = await bucket.get(attachmentId);
+  return object === null
+    ? new Response("Not found", { status: 404 })
+    : new Response(object.body, {
+        headers: {
+          "cache-control": "no-store",
+          "content-disposition": "attachment",
+          "content-type":
+            object.httpMetadata?.contentType ?? "application/octet-stream",
+          "x-content-type-options": "nosniff",
+        },
+      });
+};
+
 interface WorkerEnv {
   readonly ATTACHMENTS?: R2Bucket;
   readonly CONTAINER?: DurableObjectNamespace;
@@ -96,6 +135,8 @@ interface WorkerEnv {
   readonly GMESSAGES_ACCESS_AUDIENCE?: string;
   readonly GMESSAGES_ACCESS_TEAM_DOMAIN?: string;
   readonly GMESSAGES_AUTH_MODE?: string;
+  readonly GMESSAGES_ADMIN_HOSTNAME?: string;
+  readonly GMESSAGES_HOSTNAME?: string;
   readonly GMESSAGES_MODE?: string;
   readonly SESSION_COORDINATOR?: DurableObjectNamespace;
 }
@@ -130,27 +171,14 @@ export default {
       });
     }
     if (url.pathname.startsWith("/admin/pair/")) {
-      return handlePairingRequest(
-        request,
-        env,
-        authentication.value.type === "user"
-      );
+      return handlePairingRequest(request, env, authentication.value.type);
     }
-    if (url.pathname.startsWith("/attachments/")) {
-      const attachmentId = url.pathname.slice("/attachments/".length);
-      const bucket = env.ATTACHMENTS;
-      if (bucket === undefined || attachmentId.length === 0) {
-        return new Response("Not found", { status: 404 });
+    if (url.pathname === "/mcp") {
+      if (!isMcpAuthorized(url, env, authentication.value.type)) {
+        return new Response("Forbidden", { status: 403 });
       }
-      const object = await bucket.get(attachmentId);
-      return object === null
-        ? new Response("Not found", { status: 404 })
-        : new Response(object.body, {
-            headers: {
-              "content-type":
-                object.httpMetadata?.contentType ?? "application/octet-stream",
-            },
-          });
+    } else if (url.pathname.startsWith("/attachments/")) {
+      return handleAttachmentRequest(url, env);
     }
     if (url.pathname !== "/mcp") {
       return new Response("Not found", { status: 404 });

@@ -7,9 +7,9 @@ bun install
 bun alchemy deploy --stage production
 ```
 
-Set `GMESSAGES_HOSTNAME` to the existing custom hostname. The stack disables `workers.dev`; when the hostname is set, Alchemy creates a self-hosted Access application and attaches it to the Worker.
+Set `GMESSAGES_HOSTNAME` to the existing MCP custom hostname, `GMESSAGES_ADMIN_HOSTNAME` to a separate existing admin hostname, and `GMESSAGES_ADMIN_EMAIL` to the one operator email allowed to pair. The stack disables `workers.dev`; Alchemy creates a service-token-only self-hosted Access application for the MCP hostname and a separate one-hour, email-scoped Access application for the admin hostname.
 
-The stack creates one stage-specific service token and a dedicated `non_identity` Service Auth policy. Configure Hermes with `CF-Access-Client-Id` and `CF-Access-Client-Secret`. Rotate by incrementing `clientSecretVersion`, distribute the new secret, then retire the old secret after `previousClientSecretExpiresAt`.
+The stack creates one stage-specific service token and a dedicated `non_identity` Service Auth policy. Configure Hermes with `CF-Access-Client-Id` and `CF-Access-Client-Secret`; do not use that token on the admin hostname. Rotate by incrementing `clientSecretVersion`, distribute the new secret, then retire the old secret after `previousClientSecretExpiresAt`.
 
 The primary Durable Object serializes session ownership, reconnects, outbound operations, and container restart coordination. Container storage is disposable. Real mode must encrypt session material before storing it; fake mode never creates or needs Google credentials.
 

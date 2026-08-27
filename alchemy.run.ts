@@ -17,6 +17,14 @@ export default Stack(
   gen(function* infrastructure() {
     const stage = yield* Stage;
     const hostname = yield* string("GMESSAGES_HOSTNAME").pipe(withDefault(""));
+    const adminHostname =
+      stage === "production"
+        ? yield* string("GMESSAGES_ADMIN_HOSTNAME")
+        : yield* string("GMESSAGES_ADMIN_HOSTNAME").pipe(withDefault(""));
+    const adminEmail =
+      stage === "production"
+        ? yield* string("GMESSAGES_ADMIN_EMAIL")
+        : yield* string("GMESSAGES_ADMIN_EMAIL").pipe(withDefault(""));
     const accessAudience =
       stage === "production"
         ? yield* string("GMESSAGES_ACCESS_AUDIENCE")
@@ -90,16 +98,40 @@ export default Stack(
             sessionDuration: "24h",
             type: "self_hosted",
           });
+    const adminPolicy =
+      adminHostname.length === 0 || adminEmail.length === 0
+        ? undefined
+        : yield* Policy("AdminPairingPolicy", {
+            decision: "allow",
+            include: [{ email: adminEmail }],
+          });
+    const adminAccess =
+      adminHostname.length === 0 || adminPolicy === undefined
+        ? undefined
+        : yield* Application("AdminAccess", {
+            domain: adminHostname,
+            policies: [adminPolicy],
+            sessionDuration: "1h",
+            type: "self_hosted",
+          });
     const worker = yield* Worker("MessagesWorker", {
       access,
-      domain: hostname.length === 0 ? undefined : hostname,
+      domain:
+        hostname.length === 0
+          ? undefined
+          : {
+              aliases: adminHostname.length === 0 ? [] : [adminHostname],
+              name: hostname,
+            },
       env: {
         ATTACHMENTS: bucket,
         CONTAINER: container,
         DB: database,
         GMESSAGES_ACCESS_AUDIENCE: accessAudience,
         GMESSAGES_ACCESS_TEAM_DOMAIN: accessTeamDomain,
+        GMESSAGES_ADMIN_HOSTNAME: adminHostname,
         GMESSAGES_AUTH_MODE: authMode,
+        GMESSAGES_HOSTNAME: hostname,
         GMESSAGES_IPC_TOKEN: ipcToken,
         GMESSAGES_MODE: mode,
         SESSION_COORDINATOR: session,
@@ -109,6 +141,7 @@ export default Stack(
     });
     return {
       access,
+      adminAccess,
       bucket,
       container,
       database,

@@ -28,6 +28,7 @@ import worker from "../worker/worker";
 const services = GoogleMessagesTest.pipe(
   Layer.merge(MessageRepositoryMemory.pipe(Layer.provide(GoogleMessagesTest)))
 );
+const testWorkerEnv = { GMESSAGES_AUTH_MODE: "test" };
 
 describe("fake Google Messages application", () => {
   test("reads fixtures and persists an outgoing message", async () => {
@@ -285,11 +286,15 @@ test("a retry after a provider failure can complete the delivery", async () => {
 });
 
 test("health is not a public debug endpoint", async () => {
-  const denied = await worker.fetch(new Request("https://example.test/health"));
+  const denied = await worker.fetch(
+    new Request("https://example.test/health"),
+    testWorkerEnv
+  );
   const allowed = await worker.fetch(
     new Request("https://example.test/health", {
       headers: { "x-gmessages-test-token": "local-mcp-token" },
-    })
+    }),
+    testWorkerEnv
   );
   expect(denied.status).toBe(401);
   expect(allowed.status).toBe(200);
@@ -297,14 +302,105 @@ test("health is not a public debug endpoint", async () => {
 });
 
 test("MCP rejects missing and invalid local authentication", async () => {
-  const missing = await worker.fetch(new Request("https://example.test/mcp"));
+  const missing = await worker.fetch(
+    new Request("https://example.test/mcp"),
+    testWorkerEnv
+  );
   const invalid = await worker.fetch(
     new Request("https://example.test/mcp", {
       headers: { "x-gmessages-test-token": "invalid" },
-    })
+    }),
+    testWorkerEnv
   );
   expect(missing.status).toBe(401);
   expect(invalid.status).toBe(401);
+});
+
+test("worker authentication fails closed for unset and unknown modes", async () => {
+  const request = new Request("https://example.test/health", {
+    headers: { "x-gmessages-test-token": "local-mcp-token" },
+  });
+  const unset = await worker.fetch(request);
+  const unknown = await worker.fetch(request, {
+    GMESSAGES_AUTH_MODE: "unknown",
+  });
+  expect(unset.status).toBe(503);
+  expect(unknown.status).toBe(503);
+});
+
+test("worker test mode accepts local authentication and access mode does not", async () => {
+  const request = new Request("https://example.test/health", {
+    headers: { "x-gmessages-test-token": "local-mcp-token" },
+  });
+  const testMode = await worker.fetch(request, testWorkerEnv);
+  const accessMode = await worker.fetch(request, {
+    GMESSAGES_ACCESS_AUDIENCE: "audience",
+    GMESSAGES_ACCESS_TEAM_DOMAIN: "https://team.example.com",
+    GMESSAGES_AUTH_MODE: "access",
+  });
+  expect(testMode.status).toBe(200);
+  expect(accessMode.status).toBe(401);
+});
+
+test("MCP is restricted to service principals on its hostname", async () => {
+  const admin = await worker.fetch(
+    new Request("https://admin.example.test/mcp", {
+      headers: { "x-gmessages-test-token": "local-admin-token" },
+    }),
+    {
+      GMESSAGES_ADMIN_HOSTNAME: "admin.example.test",
+      GMESSAGES_AUTH_MODE: "test",
+      GMESSAGES_HOSTNAME: "mcp.example.test",
+    }
+  );
+  const wrongHost = await worker.fetch(
+    new Request("https://admin.example.test/mcp", {
+      headers: { "x-gmessages-test-token": "local-mcp-token" },
+    }),
+    {
+      GMESSAGES_ADMIN_HOSTNAME: "admin.example.test",
+      GMESSAGES_AUTH_MODE: "test",
+      GMESSAGES_HOSTNAME: "mcp.example.test",
+    }
+  );
+  expect(admin.status).toBe(403);
+  expect(wrongHost.status).toBe(403);
+});
+
+test("attachment responses are private downloads and missing objects are 404", async () => {
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("attachment"));
+      controller.close();
+    },
+  });
+  const bucket = {
+    get: (key: string) =>
+      key === "present"
+        ? {
+            body,
+            httpMetadata: { contentType: "image/png" },
+          }
+        : null,
+  };
+  // SAFETY: this test supplies only the R2 get capability used by the route.
+  const attachmentBucket = bucket as never;
+  const env = { ATTACHMENTS: attachmentBucket, ...testWorkerEnv };
+  const headers = { "x-gmessages-test-token": "local-mcp-token" };
+  const found = await worker.fetch(
+    new Request("https://example.test/attachments/present", { headers }),
+    env
+  );
+  const missing = await worker.fetch(
+    new Request("https://example.test/attachments/missing", { headers }),
+    env
+  );
+  expect(found.status).toBe(200);
+  expect(found.headers.get("cache-control")).toBe("no-store");
+  expect(found.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(found.headers.get("content-disposition")).toBe("attachment");
+  expect(found.headers.get("content-type")).toBe("image/png");
+  expect(missing.status).toBe(404);
 });
 
 test("deployed authentication never falls back to the local token", async () => {
@@ -409,7 +505,10 @@ test("MCP client can initialize, list, read, search, and send", async () => {
         headers.set("accept", "application/json, text/event-stream");
         headers.set("x-gmessages-test-token", "local-mcp-token");
         const url = input.toString();
-        return worker.fetch(new Request(url, { ...init, headers }));
+        return worker.fetch(
+          new Request(url, { ...init, headers }),
+          testWorkerEnv
+        );
       },
     }
   );
