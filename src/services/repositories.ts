@@ -5,6 +5,10 @@ import { GoogleMessages } from "./google-messages";
 import type { GoogleMessageEvent } from "./google-messages";
 import type { RepositoryError } from "./repository-error";
 
+export interface DeliveryReservation {
+  readonly owner: string;
+}
+
 /** Persistence failure. */
 /** Queryable message persistence port. */
 export interface MessageRepositoryService {
@@ -26,10 +30,12 @@ export interface MessageRepositoryService {
   ) => Effect.Effect<readonly Message[], RepositoryError>;
   readonly commitDelivery: (
     idempotencyKey: string,
+    owner: string,
     message: Message
   ) => Effect.Effect<void, RepositoryError>;
   readonly failDelivery: (
     idempotencyKey: string,
+    owner: string,
     reason: string,
     retryable: boolean
   ) => Effect.Effect<void, RepositoryError>;
@@ -40,9 +46,10 @@ export interface MessageRepositoryService {
     idempotencyKey: string,
     conversationId?: string,
     text?: string
-  ) => Effect.Effect<boolean, RepositoryError>;
+  ) => Effect.Effect<DeliveryReservation | false, RepositoryError>;
   readonly releaseIdempotencyKey: (
-    idempotencyKey: string
+    idempotencyKey: string,
+    owner: string
   ) => Effect.Effect<void, RepositoryError>;
 }
 
@@ -60,10 +67,10 @@ export const MessageRepositoryMemory = Layer.effect(
     const conversations = yield* provider.conversations;
     const initial = yield* provider.messages(conversations[0]?.id ?? "missing");
     const state = { messages: [...initial] };
-    const reservations = new Set<string>();
+    const reservations = new Map<string, { owner: string }>();
     const completed = new Map<string, Message>();
     return {
-      commitDelivery: (idempotencyKey, message) =>
+      commitDelivery: (idempotencyKey, _owner, message) =>
         Effect.sync(() => {
           if (
             !state.messages.some(
@@ -74,7 +81,12 @@ export const MessageRepositoryMemory = Layer.effect(
           }
           completed.set(idempotencyKey, message);
         }),
-      failDelivery: () => Effect.void,
+      failDelivery: (idempotencyKey, owner) =>
+        Effect.sync(() => {
+          if (reservations.get(idempotencyKey)?.owner === owner) {
+            reservations.delete(idempotencyKey);
+          }
+        }),
       findByIdempotencyKey: (idempotencyKey) =>
         Effect.succeed(completed.get(idempotencyKey)),
       get: (conversationId) =>
@@ -85,9 +97,11 @@ export const MessageRepositoryMemory = Layer.effect(
         ),
       ingestEvent: () => Effect.void,
       listConversations: Effect.succeed(conversations),
-      releaseIdempotencyKey: (idempotencyKey) =>
+      releaseIdempotencyKey: (idempotencyKey, owner) =>
         Effect.sync(() => {
-          reservations.delete(idempotencyKey);
+          if (reservations.get(idempotencyKey)?.owner === owner) {
+            reservations.delete(idempotencyKey);
+          }
         }),
       reserveIdempotencyKey: (idempotencyKey) =>
         Effect.sync(() => {
@@ -97,8 +111,9 @@ export const MessageRepositoryMemory = Layer.effect(
           ) {
             return false;
           }
-          reservations.add(idempotencyKey);
-          return true;
+          const owner = crypto.randomUUID();
+          reservations.set(idempotencyKey, { owner });
+          return { owner };
         }),
       search: (query) =>
         Effect.succeed(

@@ -2,6 +2,7 @@ import { Effect } from "effect";
 
 import { GoogleMessages, GoogleMessagesError } from "./google-messages";
 import { MessageRepository } from "./repositories";
+import { RepositoryError } from "./repository-error";
 import { SendInProgressError } from "./send-in-progress-error";
 
 /** Indicates that another delivery currently owns the idempotency key. */
@@ -30,18 +31,31 @@ export const MessagingService = {
       const repository = yield* Effect.service(MessageRepository);
       const existing = yield* repository.findByIdempotencyKey(idempotencyKey);
       if (existing !== undefined) {
+        if (
+          existing.conversationId !== conversationId ||
+          existing.text !== text
+        ) {
+          return yield* Effect.fail(
+            new RepositoryError({
+              cause: "idempotency key reused with different payload",
+              operation: "outbox.payload",
+            })
+          );
+        }
         return existing;
       }
-      const reserved = yield* repository.reserveIdempotencyKey(
+      const reservation = yield* repository.reserveIdempotencyKey(
         idempotencyKey,
         conversationId,
         text
       );
-      if (!reserved) {
+      if (!reservation) {
         return yield* Effect.fail(new SendInProgressError({ idempotencyKey }));
       }
       yield* provider.connect.pipe(
-        Effect.tapError(() => repository.releaseIdempotencyKey(idempotencyKey))
+        Effect.tapError(() =>
+          repository.releaseIdempotencyKey(idempotencyKey, reservation.owner)
+        )
       );
       const message = yield* provider
         .send(conversationId, text, idempotencyKey)
@@ -58,12 +72,17 @@ export const MessagingService = {
           Effect.tapError((error) =>
             repository.failDelivery(
               idempotencyKey,
+              reservation.owner,
               error.reason,
               error.retryable
             )
           )
         );
-      yield* repository.commitDelivery(idempotencyKey, message);
+      yield* repository.commitDelivery(
+        idempotencyKey,
+        reservation.owner,
+        message
+      );
       return message;
     }),
 };

@@ -8,6 +8,7 @@ import { D1 } from "../d1-service";
 import type { D1Service, D1Statement } from "../d1-service";
 import type { GoogleMessageEvent } from "../google-messages";
 import { MessageRepository } from "../repositories";
+import { StorageError } from "../storage-error";
 
 const makeEvent = (): GoogleMessageEvent => ({
   id: "event-1",
@@ -26,10 +27,19 @@ const makeEvent = (): GoogleMessageEvent => ({
   },
 });
 
-const makeDatabase = (runs: number[], batches: D1Statement[][]): D1Service => ({
+const makeDatabase = (
+  runs: number[],
+  batches: D1Statement[][],
+  failFirstBatch = false
+): D1Service => ({
   all: () => Effect.succeed([]),
   batch: (statements) => {
     batches.push([...statements]);
+    if (failFirstBatch && batches.length === 1) {
+      return Effect.fail(
+        new StorageError({ cause: "batch failed", operation: "test.batch" })
+      );
+    }
     return Effect.succeed(statements.map(() => 1));
   },
   first: () => Effect.succeed(null),
@@ -55,8 +65,9 @@ describe("D1 event ingestion", () => {
 
     await Effect.runPromise(repository.ingestEvent(makeEvent()));
 
-    expect(runs).toHaveLength(1);
+    expect(runs).toHaveLength(0);
     expect(batches).toHaveLength(1);
+    expect(batches[0]?.[0]?.query).toContain("protocol_events");
     expect(batches[0]?.at(-1)?.query).toContain("sync_state");
   });
 
@@ -70,9 +81,29 @@ describe("D1 event ingestion", () => {
       )
     );
 
-    runs.push(1);
     await Effect.runPromise(repository.ingestEvent(makeEvent()));
 
-    expect(batches).toHaveLength(0);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toHaveLength(8);
+    expect(batches[0]?.[1]?.query).toContain("protocol_events");
+  });
+
+  test("retries the entire ingest batch after a failure", async () => {
+    const runs: number[] = [];
+    const batches: D1Statement[][] = [];
+    const repository = await Effect.runPromise(
+      Effect.provide(
+        Effect.service(MessageRepository),
+        repositoryServices(makeDatabase(runs, batches, true))
+      )
+    );
+
+    const first = await Effect.runPromiseExit(
+      repository.ingestEvent(makeEvent())
+    );
+    await Effect.runPromise(repository.ingestEvent(makeEvent()));
+
+    expect(first._tag).toBe("Failure");
+    expect(batches).toHaveLength(2);
   });
 });

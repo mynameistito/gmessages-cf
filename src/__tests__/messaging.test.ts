@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { Effect, Layer, Stream } from "effect";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 
+import type { Message } from "../domain/message";
 import {
   AccessAuthentication,
   accessAuthenticationLive,
@@ -120,6 +121,24 @@ test("different idempotency keys do not collide for equal-length text", async ()
   expect(result.first.externalId).not.toBe(result.second.externalId);
 });
 
+test("rejects reusing an idempotency key with a different payload", async () => {
+  const result = await Effect.runPromise(
+    Effect.provide(
+      Effect.gen(function* result() {
+        const conversations = yield* MessagingService.listConversations;
+        const conversationId = conversations[0]?.id ?? "missing";
+        yield* MessagingService.send(conversationId, "original", "payload-key");
+        return yield* Effect.exit(
+          MessagingService.send(conversationId, "changed", "payload-key")
+        );
+      }),
+      services
+    )
+  );
+
+  expect(result._tag).toBe("Failure");
+});
+
 test("a provider failure releases the idempotency reservation", async () => {
   const failingProvider = Layer.succeed(GoogleMessages, {
     connect: Effect.void,
@@ -153,6 +172,59 @@ test("a provider failure releases the idempotency reservation", async () => {
   );
   expect(result.first._tag).toBe("Failure");
   expect(result.second._tag).toBe("Failure");
+});
+
+test("a retry after a provider failure can complete the delivery", async () => {
+  let attempts = 0;
+  const provider = Layer.succeed(GoogleMessages, {
+    connect: Effect.void,
+    conversations: Effect.succeed([]),
+    events: Stream.empty,
+    messages: () => Effect.succeed([]),
+    send: (conversationId, text, _idempotencyKey) => {
+      attempts += 1;
+      return attempts === 1
+        ? Effect.fail(
+            new GoogleMessagesError({ reason: "temporary", retryable: true })
+          )
+        : Effect.succeed({
+            // SAFETY: test identifier satisfies the branded domain identifier contract.
+            conversationId: conversationId as Message["conversationId"],
+            externalId: "retry-message",
+            // SAFETY: test identifier satisfies the branded domain identifier contract.
+            id: "retry-message" as Message["id"],
+            outgoing: true,
+            // SAFETY: test identifier satisfies the branded domain identifier contract.
+            senderId: "sender-1" as Message["senderId"],
+            sentAt: new Date(),
+            text,
+            transport: "rcs" as const,
+          });
+    },
+  } satisfies GoogleMessagesService);
+  const retryServices = provider.pipe(
+    Layer.merge(MessageRepositoryMemory.pipe(Layer.provide(provider)))
+  );
+
+  const result = await Effect.runPromise(
+    Effect.provide(
+      Effect.gen(function* result() {
+        const first = yield* Effect.exit(
+          MessagingService.send("conversation-demo", "retry", "retry-once")
+        );
+        const second = yield* MessagingService.send(
+          "conversation-demo",
+          "retry",
+          "retry-once"
+        );
+        return { first, second };
+      }),
+      retryServices
+    )
+  );
+
+  expect(result.first._tag).toBe("Failure");
+  expect(result.second.externalId).toBe("retry-message");
 });
 
 test("health is not a public debug endpoint", async () => {

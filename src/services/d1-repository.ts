@@ -6,7 +6,10 @@ import { D1 } from "./d1-service";
 import type { D1Service } from "./d1-service";
 import type { GoogleMessageEvent } from "./google-messages";
 import { MessageRepository } from "./repositories";
-import type { MessageRepositoryService } from "./repositories";
+import type {
+  DeliveryReservation,
+  MessageRepositoryService,
+} from "./repositories";
 import { RepositoryError } from "./repository-error";
 
 interface ConversationRow {
@@ -73,27 +76,59 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
       const reservationCutoff = () =>
         new Date(Date.now() - staleAfterMs).toISOString();
       const service: MessageRepositoryService = {
-        commitDelivery: (idempotencyKey, message) =>
+        commitDelivery: (idempotencyKey, owner, message) =>
           database
             .batch([
+              {
+                parameters: [
+                  message.externalId,
+                  new Date().toISOString(),
+                  idempotencyKey,
+                  owner,
+                ],
+                query:
+                  "UPDATE outbox SET status = 'completed', external_id = ?, updated_at = ? WHERE idempotency_key = ? AND owner = ? AND status = 'pending'",
+              },
               {
                 parameters: [
                   message.conversationId,
                   message.conversationId,
                   message.sentAt.toISOString(),
+                  idempotencyKey,
+                  owner,
                 ],
                 query:
-                  "INSERT INTO conversations (id, title, last_message_at, unread_count) VALUES (?, ?, ?, 0) ON CONFLICT(id) DO UPDATE SET last_message_at = excluded.last_message_at",
+                  "INSERT OR IGNORE INTO conversations (id, title, last_message_at, unread_count) SELECT ?, ?, ?, 0 WHERE EXISTS (SELECT 1 FROM outbox WHERE idempotency_key = ? AND owner = ? AND status = 'completed')",
               },
               {
-                parameters: [message.senderId, message.senderId],
+                parameters: [
+                  message.senderId,
+                  message.senderId,
+                  idempotencyKey,
+                  owner,
+                ],
                 query:
-                  "INSERT OR IGNORE INTO participants (id, address) VALUES (?, ?)",
+                  "INSERT OR IGNORE INTO participants (id, address) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM outbox WHERE idempotency_key = ? AND owner = ? AND status = 'completed')",
               },
               {
-                parameters: [message.conversationId, message.senderId],
+                parameters: [
+                  message.sentAt.toISOString(),
+                  message.conversationId,
+                  idempotencyKey,
+                  owner,
+                ],
                 query:
-                  "INSERT OR IGNORE INTO conversation_participants (conversation_id, participant_id) VALUES (?, ?)",
+                  "UPDATE conversations SET last_message_at = ? WHERE id = ? AND EXISTS (SELECT 1 FROM outbox WHERE idempotency_key = ? AND owner = ? AND status = 'completed')",
+              },
+              {
+                parameters: [
+                  message.conversationId,
+                  message.senderId,
+                  idempotencyKey,
+                  owner,
+                ],
+                query:
+                  "INSERT OR IGNORE INTO conversation_participants (conversation_id, participant_id) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM outbox WHERE idempotency_key = ? AND owner = ? AND status = 'completed')",
               },
               {
                 parameters: [
@@ -105,18 +140,11 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
                   message.transport,
                   message.sentAt.toISOString(),
                   message.outgoing ? 1 : 0,
-                ],
-                query:
-                  "INSERT OR IGNORE INTO messages (id, conversation_id, sender_id, external_id, text, transport, sent_at, outgoing) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-              },
-              {
-                parameters: [
-                  message.externalId,
-                  new Date().toISOString(),
                   idempotencyKey,
+                  owner,
                 ],
                 query:
-                  "UPDATE outbox SET status = 'completed', external_id = ?, updated_at = ? WHERE idempotency_key = ? AND status = 'pending'",
+                  "INSERT OR IGNORE INTO messages (id, conversation_id, sender_id, external_id, text, transport, sent_at, outgoing) SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM outbox WHERE idempotency_key = ? AND owner = ? AND status = 'completed')",
               },
             ])
             .pipe(
@@ -125,14 +153,15 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
               ),
               Effect.asVoid
             ),
-        failDelivery: (idempotencyKey, reason, retryable) =>
+        failDelivery: (idempotencyKey, owner, reason, retryable) =>
           database
             .run(
-              "UPDATE outbox SET status = ?, last_error = ?, retry_count = retry_count + 1, updated_at = ? WHERE idempotency_key = ? AND status = 'pending'",
+              "UPDATE outbox SET status = ?, last_error = ?, retry_count = retry_count + 1, updated_at = ? WHERE idempotency_key = ? AND owner = ? AND status = 'pending'",
               retryable ? "retryable" : "failed",
               reason.slice(0, 256),
               new Date().toISOString(),
-              idempotencyKey
+              idempotencyKey,
+              owner
             )
             .pipe(
               Effect.mapError((cause) => repositoryError("outbox.fail", cause)),
@@ -166,29 +195,51 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
           ),
         ingestEvent: (event: GoogleMessageEvent) =>
           Effect.gen(function* ingestEvent() {
-            const inserted = yield* database.run(
-              "INSERT OR IGNORE INTO protocol_events (external_id, event_type, received_at, payload_hash) VALUES (?, 'message', ?, ?)",
-              event.id,
-              new Date().toISOString(),
-              event.message.externalId
-            );
-            if (inserted === 0) {
-              return;
-            }
+            const receivedAt = `${new Date().toISOString()}-${crypto.randomUUID()}`;
+            const eventIsNew =
+              "EXISTS (SELECT 1 FROM protocol_events WHERE external_id = ? AND received_at = ?)";
             yield* database.batch([
+              {
+                parameters: [event.id, receivedAt, event.message.externalId],
+                query:
+                  "INSERT OR IGNORE INTO protocol_events (external_id, event_type, received_at, payload_hash) VALUES (?, 'message', ?, ?)",
+              },
               {
                 parameters: [
                   event.message.conversationId,
                   event.message.conversationId,
                   event.message.sentAt.toISOString(),
+                  event.id,
+                  receivedAt,
                 ],
-                query:
-                  "INSERT INTO conversations (id, title, last_message_at, unread_count) VALUES (?, ?, ?, 0) ON CONFLICT(id) DO UPDATE SET last_message_at = excluded.last_message_at",
+                query: `INSERT OR IGNORE INTO conversations (id, title, last_message_at, unread_count) SELECT ?, ?, ?, 0 WHERE ${eventIsNew}`,
               },
               {
-                parameters: [event.message.senderId, event.message.senderId],
-                query:
-                  "INSERT OR IGNORE INTO participants (id, address) VALUES (?, ?)",
+                parameters: [
+                  event.message.sentAt.toISOString(),
+                  event.message.conversationId,
+                  event.id,
+                  receivedAt,
+                ],
+                query: `UPDATE conversations SET last_message_at = ? WHERE id = ? AND ${eventIsNew}`,
+              },
+              {
+                parameters: [
+                  event.message.senderId,
+                  event.message.senderId,
+                  event.id,
+                  receivedAt,
+                ],
+                query: `INSERT OR IGNORE INTO participants (id, address) SELECT ?, ? WHERE ${eventIsNew}`,
+              },
+              {
+                parameters: [
+                  event.message.conversationId,
+                  event.message.senderId,
+                  event.id,
+                  receivedAt,
+                ],
+                query: `INSERT OR IGNORE INTO conversation_participants (conversation_id, participant_id) SELECT ?, ? WHERE ${eventIsNew}`,
               },
               {
                 parameters: [
@@ -208,14 +259,19 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
                   event.message.transport,
                   event.message.sentAt.toISOString(),
                   event.message.outgoing ? 1 : 0,
+                  event.id,
+                  receivedAt,
                 ],
-                query:
-                  "INSERT OR IGNORE INTO messages (id, conversation_id, sender_id, external_id, text, transport, sent_at, outgoing) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                query: `INSERT OR IGNORE INTO messages (id, conversation_id, sender_id, external_id, text, transport, sent_at, outgoing) SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE ${eventIsNew}`,
               },
               {
-                parameters: [event.id, new Date().toISOString()],
-                query:
-                  "INSERT INTO sync_state (key, cursor, updated_at) VALUES ('google-messages-events', ?, ?) ON CONFLICT(key) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at",
+                parameters: [
+                  event.id,
+                  new Date().toISOString(),
+                  event.id,
+                  receivedAt,
+                ],
+                query: `INSERT OR REPLACE INTO sync_state (key, cursor, updated_at) SELECT 'google-messages-events', ?, ? WHERE ${eventIsNew}`,
               },
             ]);
           }).pipe(
@@ -241,11 +297,12 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
               repositoryError("conversations.list", cause)
             )
           ),
-        releaseIdempotencyKey: (idempotencyKey) =>
+        releaseIdempotencyKey: (idempotencyKey, owner) =>
           database
             .run(
-              "DELETE FROM outbox WHERE idempotency_key = ? AND status = 'pending'",
-              idempotencyKey
+              "DELETE FROM outbox WHERE idempotency_key = ? AND owner = ? AND status = 'pending'",
+              idempotencyKey,
+              owner
             )
             .pipe(
               Effect.mapError((cause) =>
@@ -258,22 +315,43 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
           conversationId = "",
           text = ""
         ) =>
-          database
-            .run(
-              "INSERT INTO outbox (operation_id, idempotency_key, conversation_id, text, status, external_id, updated_at) VALUES (?, ?, ?, ?, 'pending', NULL, ?) ON CONFLICT(idempotency_key) DO UPDATE SET status = 'pending', conversation_id = excluded.conversation_id, text = excluded.text, updated_at = excluded.updated_at WHERE status IN ('pending', 'retryable') AND updated_at < ?",
+          Effect.gen(function* reserve() {
+            const owner = crypto.randomUUID();
+            const changes = yield* database.run(
+              "INSERT INTO outbox (operation_id, idempotency_key, conversation_id, text, status, external_id, updated_at, owner) VALUES (?, ?, ?, ?, 'pending', NULL, ?, ?) ON CONFLICT(idempotency_key) DO UPDATE SET status = 'pending', conversation_id = excluded.conversation_id, text = excluded.text, updated_at = excluded.updated_at, owner = excluded.owner WHERE (status = 'retryable' OR (status = 'pending' AND updated_at < ?)) AND conversation_id = excluded.conversation_id AND text = excluded.text",
               crypto.randomUUID(),
               idempotencyKey,
               conversationId,
               text,
               new Date().toISOString(),
+              owner,
               reservationCutoff()
-            )
-            .pipe(
-              Effect.map((changes) => changes === 1),
-              Effect.mapError((cause) =>
-                repositoryError("outbox.reserve", cause)
-              )
-            ),
+            );
+            if (changes === 1) {
+              return { owner } satisfies DeliveryReservation;
+            }
+            const row = yield* database.first<{
+              conversation_id: string;
+              text: string;
+            }>(
+              "SELECT conversation_id, text FROM outbox WHERE idempotency_key = ?",
+              idempotencyKey
+            );
+            if (
+              row &&
+              (row.conversation_id !== conversationId || row.text !== text)
+            ) {
+              return yield* Effect.fail(
+                repositoryError(
+                  "outbox.payload",
+                  "idempotency key reused with different payload"
+                )
+              );
+            }
+            return false;
+          }).pipe(
+            Effect.mapError((cause) => repositoryError("outbox.reserve", cause))
+          ),
         search: (query) =>
           queryMessages(
             database,
