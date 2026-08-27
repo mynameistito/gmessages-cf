@@ -5,6 +5,9 @@ node_modules
 out
 dist
 *.tgz
+.alchemy/
+gmessages/.git-upstream-backup/
+gmessages/server.exe
 
 # code coverage
 coverage
