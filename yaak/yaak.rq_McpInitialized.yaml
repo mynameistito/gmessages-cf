@@ -12,18 +12,18 @@ body:
 bodyType: application/json
 description: Complete MCP initialization. A successful notification may return an empty HTTP response.
 headers:
-  - enabled: true
-    name: Accept
-    value: application/json, text/event-stream
-    id: hdr_initialized_accept
-  - enabled: true
-    name: Content-Type
-    value: application/json
-    id: hdr_initialized_content
-  - enabled: true
-    name: x-gmessages-test-token
-    value: local-mcp-token
-    id: hdr_initialized_token
+- enabled: true
+  name: Accept
+  value: application/json, text/event-stream
+  id: hdr_initialized_accept
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: hdr_initialized_content
+- enabled: true
+  name: x-gmessages-test-token
+  value: local-mcp-token
+  id: hdr_initialized_token
 method: POST
 name: MCP Initialized
 sortPriority: 1.0
