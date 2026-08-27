@@ -30,7 +30,8 @@ const makeEvent = (): GoogleMessageEvent => ({
 const makeDatabase = (
   runs: number[],
   batches: D1Statement[][],
-  failFirstBatch = false
+  failFirstBatch = false,
+  firstBatchChanges = 1
 ): D1Service => ({
   all: () => Effect.succeed([]),
   batch: (statements) => {
@@ -40,7 +41,9 @@ const makeDatabase = (
         new StorageError({ cause: "batch failed", operation: "test.batch" })
       );
     }
-    return Effect.succeed(statements.map(() => 1));
+    return Effect.succeed(
+      statements.map((_, index) => (index === 0 ? firstBatchChanges : 1))
+    );
   },
   first: () => Effect.succeed(null),
   run: () => {
@@ -51,6 +54,30 @@ const makeDatabase = (
 
 const repositoryServices = (database: D1Service) =>
   messageRepositoryD1().pipe(Layer.provide(Layer.succeed(D1, database)));
+
+test("does not persist a delivery after the owner loses the reservation", async () => {
+  const runs: number[] = [];
+  const batches: D1Statement[][] = [];
+  const repository = await Effect.runPromise(
+    Effect.provide(
+      Effect.service(MessageRepository),
+      repositoryServices(makeDatabase(runs, batches, false, 0))
+    )
+  );
+
+  const result = await Effect.runPromiseExit(
+    repository.commitDelivery(
+      "delivery-key",
+      "stale-owner",
+      makeEvent().message
+    )
+  );
+
+  expect(result._tag).toBe("Failure");
+  expect(batches).toHaveLength(1);
+  expect(batches[0]?.[0]?.query).toContain("owner = ?");
+  expect(batches[0]?.at(-1)?.query).toContain("status = 'completed'");
+});
 
 describe("D1 event ingestion", () => {
   test("persists the message and cursor after first-seen event", async () => {

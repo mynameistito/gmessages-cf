@@ -148,6 +148,16 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
               },
             ])
             .pipe(
+              Effect.flatMap((changes) =>
+                changes[0] === 1
+                  ? Effect.void
+                  : Effect.fail(
+                      repositoryError(
+                        "delivery.commit",
+                        "delivery reservation is no longer owned"
+                      )
+                    )
+              ),
               Effect.mapError((cause) =>
                 repositoryError("delivery.commit", cause)
               ),

@@ -18,7 +18,10 @@ import {
 } from "../services/google-messages";
 import type { GoogleMessagesService } from "../services/google-messages";
 import { MessagingService } from "../services/messaging-service";
-import { MessageRepositoryMemory } from "../services/repositories";
+import {
+  MessageRepository,
+  MessageRepositoryMemory,
+} from "../services/repositories";
 import { handleMcpRequest } from "../worker/mcp";
 import worker from "../worker/worker";
 
@@ -137,6 +140,60 @@ test("rejects reusing an idempotency key with a different payload", async () => 
   );
 
   expect(result._tag).toBe("Failure");
+});
+
+test("memory delivery ownership survives a reclaim and rejects stale completion", async () => {
+  const result = await Effect.runPromise(
+    Effect.provide(
+      Effect.gen(function* result() {
+        const repository = yield* Effect.service(MessageRepository);
+        const provider = yield* Effect.service(GoogleMessages);
+        const first = yield* repository.reserveIdempotencyKey(
+          "reclaimed-key",
+          "conversation-demo",
+          "reclaimed"
+        );
+        if (first === false) {
+          return yield* Effect.die("first reservation was not acquired");
+        }
+        const mismatch = yield* Effect.exit(
+          repository.reserveIdempotencyKey(
+            "reclaimed-key",
+            "conversation-demo",
+            "different"
+          )
+        );
+        yield* repository.releaseIdempotencyKey("reclaimed-key", first.owner);
+        const second = yield* repository.reserveIdempotencyKey(
+          "reclaimed-key",
+          "conversation-demo",
+          "reclaimed"
+        );
+        if (second === false) {
+          return yield* Effect.die("reclaimed reservation was not acquired");
+        }
+        const message = yield* provider.send(
+          "conversation-demo",
+          "reclaimed",
+          "reclaimed-key"
+        );
+        const stale = yield* Effect.exit(
+          repository.commitDelivery("reclaimed-key", first.owner, message)
+        );
+        yield* repository.commitDelivery(
+          "reclaimed-key",
+          second.owner,
+          message
+        );
+        return { message, mismatch, stale };
+      }),
+      services
+    )
+  );
+
+  expect(result.mismatch._tag).toBe("Failure");
+  expect(result.stale._tag).toBe("Failure");
+  expect(result.message.text).toBe("reclaimed");
 });
 
 test("a provider failure releases the idempotency reservation", async () => {
