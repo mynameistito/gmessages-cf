@@ -18,14 +18,14 @@ body:
 bodyType: application/json
 description: Start Google Account pairing. Replace the placeholder cookie values locally and never commit real cookies.
 headers:
-- enabled: true
-  name: Content-Type
-  value: application/json
-  id: hdr_gaia_start_content
-- enabled: true
-  name: x-gmessages-test-token
-  value: local-admin-token
-  id: hdr_gaia_start_token
+  - enabled: true
+    name: Content-Type
+    value: application/json
+    id: hdr_gaia_start_content
+  - enabled: true
+    name: x-gmessages-test-token
+    value: local-admin-token
+    id: hdr_gaia_start_token
 method: POST
 name: Start Account Pairing
 sortPriority: 1.0
