@@ -12,21 +12,21 @@ body:
 bodyType: application/json
 description: Search locally synced message text.
 headers:
-- enabled: true
-  name: Accept
-  value: application/json, text/event-stream
-  id: hdr_search_accept
-- enabled: true
-  name: Content-Type
-  value: application/json
-  id: hdr_search_content
-- enabled: true
-  name: x-gmessages-test-token
-  value: local-mcp-token
-  id: hdr_search_token
+  - enabled: true
+    name: Accept
+    value: application/json, text/event-stream
+    id: hdr_search_accept
+  - enabled: true
+    name: Content-Type
+    value: application/json
+    id: hdr_search_content
+  - enabled: true
+    name: x-gmessages-test-token
+    value: local-mcp-token
+    id: hdr_search_token
 method: POST
 name: Search Messages
-sortPriority: 4.0
+sortPriority: 5.0
 url: http://127.0.0.1:1337/mcp
 urlParameters: []
 settingSendCookies:

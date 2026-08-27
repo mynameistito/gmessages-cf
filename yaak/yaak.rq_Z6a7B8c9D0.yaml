@@ -10,7 +10,7 @@ authenticationType: null
 body:
   text: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"messages.list_conversations","arguments":{}}}'
 bodyType: application/json
-description: List synced conversations.
+description: Run the first real-mode sync and return inbox conversation IDs for the remaining tools.
 headers:
   - enabled: true
     name: Accept
@@ -26,6 +26,6 @@ headers:
     id: hdr_list_token
 method: POST
 name: List Conversations
-sortPriority: 2
+sortPriority: 3
 url: http://127.0.0.1:1337/mcp
 urlParameters: []

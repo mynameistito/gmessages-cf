@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/events"
+	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
 )
 
 func newTestServer() *server {
@@ -55,6 +57,19 @@ func TestLifecycleStateDoesNotExposeProviderDetails(t *testing.T) {
 	}
 }
 
+func TestBrowserActiveMarksClientReady(t *testing.T) {
+	adapter := newTestServer()
+	adapter.handleEvent(&gmproto.UserAlertEvent{AlertType: gmproto.AlertType_BROWSER_ACTIVE})
+
+	adapter.mu.Lock()
+	ready := adapter.ready
+	lifecycle := adapter.lifecycle
+	adapter.mu.Unlock()
+	if !ready || lifecycle != lifecyclePaired {
+		t.Fatalf("expected browser-active event to mark client ready, got ready=%t lifecycle=%q", ready, lifecycle)
+	}
+}
+
 func TestProtectedEndpointsRequireInternalToken(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/v1/conversations", nil)
 	recorder := httptest.NewRecorder()
@@ -75,6 +90,20 @@ func TestAccountPairingRejectsMissingCookies(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected bad request status 400, got %d", recorder.Code)
+	}
+}
+
+func TestPairingErrorsIdentifySafeFailureStage(t *testing.T) {
+	tests := map[string]string{
+		"failed to prepare gaia pairing: malformed response": "google_pairing_sign_in_failed",
+		"failed to send client init: connection closed":      "google_pairing_initialization_failed",
+		"error processing server init: invalid key":          "google_pairing_handshake_failed",
+		"failed to send client finish: connection closed":    "google_pairing_confirmation_failed",
+	}
+	for message, expected := range tests {
+		if actual := classifyPairingError(errors.New(message)); actual != expected {
+			t.Fatalf("expected %q for %q, got %q", expected, message, actual)
+		}
 	}
 }
 

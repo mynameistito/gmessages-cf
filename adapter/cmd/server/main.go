@@ -38,6 +38,7 @@ type server struct {
 	pairingEmoji string
 	pairingFail  bool
 	pairingError string
+	ready        bool
 	mu           sync.Mutex
 }
 
@@ -173,21 +174,31 @@ func (s *server) handleEvent(event any) {
 }
 
 func (s *server) updateLifecycle(event any) {
-	switch event.(type) {
-	case *events.PairSuccessful, *events.ClientReady:
+	switch typedEvent := event.(type) {
+	case *events.PairSuccessful:
 		s.pairing = false
 		s.pairingURL = ""
 		s.pairingEmoji = ""
 		s.pairingFail = false
 		s.pairingError = ""
 		s.lifecycle = lifecyclePaired
+	case *events.ClientReady:
+		s.ready = true
+		s.lifecycle = lifecyclePaired
+	case *gmproto.UserAlertEvent:
+		if typedEvent.GetAlertType() == gmproto.AlertType_BROWSER_ACTIVE {
+			s.ready = true
+			s.lifecycle = lifecyclePaired
+		}
 	case *events.GaiaLoggedOut:
+		s.ready = false
 		s.lifecycle = lifecycleReauth
 		if !s.pairingFail {
 			s.pairingFail = true
 			s.pairingError = "google_session_reauthentication_required"
 		}
 	case *events.ListenFatalError:
+		s.ready = false
 		s.lifecycle = lifecycleDisconnected
 	}
 }
@@ -310,6 +321,16 @@ func classifyPairingError(err error) string {
 			detail := err.Error()[index+len(unknownPairingError):]
 			return "google_pairing_failed_" + detail
 		}
+		switch {
+		case strings.Contains(err.Error(), "failed to prepare gaia pairing"):
+			return "google_pairing_sign_in_failed"
+		case strings.Contains(err.Error(), "failed to send client init"):
+			return "google_pairing_initialization_failed"
+		case strings.Contains(err.Error(), "error processing server init"):
+			return "google_pairing_handshake_failed"
+		case strings.Contains(err.Error(), "failed to send client finish"):
+			return "google_pairing_confirmation_failed"
+		}
 		return "google_pairing_failed"
 	}
 }
@@ -375,7 +396,9 @@ func (s *server) importSession(writer http.ResponseWriter, request *http.Request
 		writeError(writer, http.StatusServiceUnavailable, "session_persistence_unavailable", false)
 		return
 	}
-	s.client.AuthData = authData
+	if !s.client.IsConnected() {
+		s.client.AuthData = authData
+	}
 	writeJSON(writer, http.StatusOK, map[string]any{"imported": true})
 }
 
@@ -527,15 +550,35 @@ func normalizedOutboundMessage(conversationID, messageID, text string) map[strin
 }
 
 func (s *server) connect(writer http.ResponseWriter, request *http.Request) {
-	if err := s.client.Connect(); err != nil {
-		s.mu.Lock()
-		if s.client.AuthData.Browser == nil {
-			s.lifecycle = lifecycleUnpaired
-		} else {
-			s.lifecycle = lifecycleReauth
+	ctx, cancel := context.WithTimeout(request.Context(), 15*time.Second)
+	defer cancel()
+	s.mu.Lock()
+	ready := s.ready
+	s.mu.Unlock()
+	if s.client.IsConnected() && ready {
+		writeJSON(writer, http.StatusOK, map[string]any{"connected": true, "status": "connected"})
+		return
+	}
+	if s.client.IsConnected() {
+		if err := s.client.SetActiveSession(ctx); err != nil {
+			writeError(writer, http.StatusServiceUnavailable, "not_connected", true)
+			return
 		}
-		s.mu.Unlock()
-		writeError(writer, http.StatusServiceUnavailable, "not_connected", true)
+	} else {
+		if err := s.client.Connect(); err != nil {
+			s.mu.Lock()
+			if s.client.AuthData.Browser == nil {
+				s.lifecycle = lifecycleUnpaired
+			} else {
+				s.lifecycle = lifecycleReauth
+			}
+			s.mu.Unlock()
+			writeError(writer, http.StatusServiceUnavailable, "not_connected", true)
+			return
+		}
+	}
+	if !s.waitUntilReady(ctx) {
+		writeError(writer, http.StatusServiceUnavailable, "not_ready", true)
 		return
 	}
 	s.mu.Lock()
@@ -544,8 +587,28 @@ func (s *server) connect(writer http.ResponseWriter, request *http.Request) {
 	writeJSON(writer, http.StatusOK, map[string]any{"connected": true, "status": "connected"})
 }
 
+func (s *server) waitUntilReady(ctx context.Context) bool {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		s.mu.Lock()
+		ready := s.ready
+		s.mu.Unlock()
+		if ready {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+		}
+	}
+}
+
 func (s *server) conversations(writer http.ResponseWriter, request *http.Request) {
-	conversations, err := s.client.ListConversations(context.Background(), 100, 0)
+	ctx, cancel := context.WithTimeout(request.Context(), 20*time.Second)
+	defer cancel()
+	conversations, err := s.client.ListConversations(ctx, 100, gmproto.ListConversationsRequest_INBOX)
 	if err != nil {
 		writeError(writer, http.StatusServiceUnavailable, "provider_failure", true)
 		return

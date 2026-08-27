@@ -26,6 +26,6 @@ headers:
     id: hdr_tools_token
 method: POST
 name: MCP Tools List
-sortPriority: 1
+sortPriority: 2
 url: http://127.0.0.1:1337/mcp
 urlParameters: []

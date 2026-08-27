@@ -20,6 +20,6 @@ variables:
     value: local-mcp-token
   - enabled: true
     name: conversation_id
-    value: conversation-demo
+    value: REPLACE_WITH_ID_FROM_LIST_CONVERSATIONS
 color: null
 sortPriority: 0

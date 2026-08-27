@@ -1,32 +1,32 @@
 type: http_request
 model: http_request
-id: rq_E1f2G3h4I5
-createdAt: 2026-08-27T00:00:00
-updatedAt: 2026-08-27T14:18:40.964052500
+id: rq_McpInitialized
+createdAt: 2026-08-28T00:00:00
+updatedAt: 2026-08-28T00:00:00
 workspaceId: wk_UkmudYKHUW
 folderId: fl_McpTst1234
 authentication: {}
 authenticationType: null
 body:
-  text: '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"messages.get_conversation","arguments":{"conversationId":"REPLACE_WITH_ID_FROM_LIST_CONVERSATIONS"}}}'
+  text: '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
 bodyType: application/json
-description: Read messages after replacing the placeholder with an ID returned by List Conversations.
+description: Complete MCP initialization. A successful notification may return an empty HTTP response.
 headers:
   - enabled: true
     name: Accept
     value: application/json, text/event-stream
-    id: hdr_get_accept
+    id: hdr_initialized_accept
   - enabled: true
     name: Content-Type
     value: application/json
-    id: hdr_get_content
+    id: hdr_initialized_content
   - enabled: true
     name: x-gmessages-test-token
     value: local-mcp-token
-    id: hdr_get_token
+    id: hdr_initialized_token
 method: POST
-name: Get Conversation
-sortPriority: 4.0
+name: MCP Initialized
+sortPriority: 1.0
 url: http://127.0.0.1:1337/mcp
 urlParameters: []
 settingSendCookies:

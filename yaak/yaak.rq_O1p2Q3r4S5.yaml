@@ -16,14 +16,14 @@ body:
       "params": {
         "name": "messages.send",
         "arguments": {
-          "conversationId": "conversation-demo",
+          "conversationId": "REPLACE_WITH_ID_FROM_LIST_CONVERSATIONS",
           "idempotencyKey": "yaak-test-key-1",
           "text": "Hello from Yaak"
         }
       }
     }
 bodyType: application/json
-description: Send one message. Change the conversation_id, idempotency key, and text before sending.
+description: Send one message after replacing the conversation ID, idempotency key, and text.
 headers:
   - enabled: true
     name: Accept
@@ -39,6 +39,6 @@ headers:
     id: hdr_send_token
 method: POST
 name: Send Message
-sortPriority: 5
+sortPriority: 6
 url: http://127.0.0.1:1337/mcp
 urlParameters: []
