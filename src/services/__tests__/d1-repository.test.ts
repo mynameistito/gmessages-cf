@@ -107,6 +107,33 @@ test("does not persist a delivery after the owner loses the reservation", async 
   expect(batches[0]?.at(-1)?.query).toContain("status = 'completed'");
 });
 
+test("message reads use a bounded deterministic query", async () => {
+  const queries: { query: string; parameters: readonly unknown[] }[] = [];
+  const database: D1Service = {
+    all: (query, ...parameters) => {
+      queries.push({ parameters, query });
+      return Effect.succeed([]);
+    },
+    batch: () => Effect.succeed([]),
+    first: () => Effect.succeed(null),
+    run: () => Effect.succeed(0),
+  };
+  const repository = await Effect.runPromise(
+    Effect.provide(
+      Effect.service(MessageRepository),
+      repositoryServices(database)
+    )
+  );
+
+  await Effect.runPromise(repository.get("conversation-1", { limit: 3 }));
+  await Effect.runPromise(repository.search("needle", { limit: 4 }));
+
+  expect(queries.at(-2)?.query).toContain("ORDER BY sent_at, id LIMIT ?");
+  expect(queries.at(-2)?.parameters).toEqual(["conversation-1", 4]);
+  expect(queries.at(-1)?.query).toContain("COLLATE NOCASE");
+  expect(queries.at(-1)?.parameters).toEqual(["%needle%", 5]);
+});
+
 describe("D1 event ingestion", () => {
   test("persists the message and cursor after first-seen event", async () => {
     const runs: number[] = [];

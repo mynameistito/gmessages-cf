@@ -48,7 +48,7 @@ describe("fake Google Messages application", () => {
       )
     );
     expect(result.message.outgoing).toBe(true);
-    expect(result.stored).toHaveLength(1);
+    expect(result.stored.messages).toHaveLength(1);
   });
 });
 
@@ -97,7 +97,7 @@ test("a repeated idempotency key returns the persisted delivery", async () => {
     )
   );
   expect(result.second.id).toBe(result.first.id);
-  expect(result.stored).toHaveLength(1);
+  expect(result.stored.messages).toHaveLength(1);
 });
 
 test("different idempotency keys do not collide for equal-length text", async () => {
@@ -533,6 +533,31 @@ test("MCP client can initialize, list, read, search, and send", async () => {
     name: "messages.send",
   });
   expect(invalid.isError).toBe(true);
+  await client.close();
+});
+
+test("MCP rejects over-limit message reads", async () => {
+  const client = new Client({ name: "limit-test-client", version: "1.0.0" });
+  const transport = new StreamableHTTPClientTransport(
+    new URL("https://example.test/mcp"),
+    {
+      fetch: (input, init) => {
+        const headers = new Headers(init?.headers);
+        headers.set("accept", "application/json, text/event-stream");
+        headers.set("x-gmessages-test-token", "local-mcp-token");
+        return worker.fetch(
+          new Request(input.toString(), { ...init, headers }),
+          testWorkerEnv
+        );
+      },
+    }
+  );
+  await client.connect(transport);
+  const result = await client.callTool({
+    arguments: { conversationId: "conversation-demo", limit: 101 },
+    name: "messages.get_conversation",
+  });
+  expect(result.isError).toBe(true);
   await client.close();
 });
 

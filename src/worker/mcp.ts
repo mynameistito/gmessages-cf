@@ -6,7 +6,11 @@ import { z } from "zod";
 
 import { GoogleMessagesError } from "../services/google-messages";
 import type { GoogleMessages } from "../services/google-messages";
-import { MessagingService } from "../services/messaging-service";
+import {
+  MAX_READ_LIMIT,
+  MessagingService,
+} from "../services/messaging-service";
+import { decodeMessageCursor } from "../services/repositories";
 import type { MessageRepository } from "../services/repositories";
 
 const toolErrorText = <E>(error: E) => {
@@ -60,18 +64,49 @@ export const createMcpServer = (
     "messages.get_conversation",
     {
       description: "Read messages in one conversation.",
-      inputSchema: { conversationId: z.string().min(1) },
+      inputSchema: {
+        conversationId: z.string().min(1),
+        cursor: z
+          .string()
+          .min(1)
+          .refine((value) => {
+            try {
+              decodeMessageCursor(value);
+              return true;
+            } catch {
+              return false;
+            }
+          })
+          .optional(),
+        limit: z.number().int().min(1).max(MAX_READ_LIMIT).optional(),
+      },
     },
-    ({ conversationId }) =>
-      runTool(MessagingService.getConversation(conversationId))
+    ({ conversationId, limit, cursor }) =>
+      runTool(MessagingService.getConversation(conversationId, limit, cursor))
   );
   server.registerTool(
     "messages.search",
     {
       description: "Search locally synced message text.",
-      inputSchema: { query: z.string().min(1) },
+      inputSchema: {
+        cursor: z
+          .string()
+          .min(1)
+          .refine((value) => {
+            try {
+              decodeMessageCursor(value);
+              return true;
+            } catch {
+              return false;
+            }
+          })
+          .optional(),
+        limit: z.number().int().min(1).max(MAX_READ_LIMIT).optional(),
+        query: z.string().min(1),
+      },
     },
-    ({ query }) => runTool(MessagingService.search(query))
+    ({ query, limit, cursor }) =>
+      runTool(MessagingService.search(query, limit, cursor))
   );
   server.registerTool(
     "messages.send",

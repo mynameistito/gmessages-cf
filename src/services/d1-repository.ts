@@ -5,7 +5,11 @@ import type { Conversation, Message } from "../domain/message";
 import { D1 } from "./d1-service";
 import type { D1Service } from "./d1-service";
 import type { GoogleMessageEvent } from "./google-messages";
-import { MessageRepository } from "./repositories";
+import {
+  MessageRepository,
+  decodeMessageCursor,
+  messageCursor,
+} from "./repositories";
 import type {
   DeliveryReservation,
   MessageRepositoryService,
@@ -197,11 +201,34 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
           }).pipe(
             Effect.mapError((cause) => repositoryError("outbox.find", cause))
           ),
-        get: (conversationId) =>
-          queryMessages(
-            database,
-            "SELECT conversation_id, external_id, id, outgoing, sender_id, sent_at, text, transport FROM messages WHERE conversation_id = ? ORDER BY sent_at",
-            conversationId
+        get: (conversationId, request) =>
+          Effect.gen(function* getPage() {
+            const cursor =
+              request.cursor === undefined
+                ? undefined
+                : decodeMessageCursor(request.cursor);
+            const rows = yield* queryMessages(
+              database,
+              cursor === undefined
+                ? "SELECT conversation_id, external_id, id, outgoing, sender_id, sent_at, text, transport FROM messages WHERE conversation_id = ? ORDER BY sent_at, id LIMIT ?"
+                : "SELECT conversation_id, external_id, id, outgoing, sender_id, sent_at, text, transport FROM messages WHERE conversation_id = ? AND (sent_at > ? OR (sent_at = ? AND id > ?)) ORDER BY sent_at, id LIMIT ?",
+              ...(cursor === undefined
+                ? [conversationId, request.limit + 1]
+                : [
+                    conversationId,
+                    cursor[0],
+                    cursor[0],
+                    cursor[1],
+                    request.limit + 1,
+                  ])
+            );
+            const messages = rows.slice(0, request.limit);
+            const last = messages.at(-1);
+            return rows.length > request.limit && last
+              ? { messages, nextCursor: messageCursor(last) }
+              : { messages };
+          }).pipe(
+            Effect.mapError((cause) => repositoryError("messages.query", cause))
           ),
         ingestEvent: (event: GoogleMessageEvent) =>
           Effect.gen(function* ingestEvent() {
@@ -270,9 +297,21 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
             Effect.mapError((cause) => repositoryError("events.ingest", cause)),
             Effect.asVoid
           ),
+        isConversationHydrated: (conversationId) =>
+          database
+            .first<{ cursor: string }>(
+              "SELECT cursor FROM sync_state WHERE key = ?",
+              `google-messages-history:${conversationId}`
+            )
+            .pipe(
+              Effect.map((row) => row !== null),
+              Effect.mapError((cause) =>
+                repositoryError("messages.hydrated", cause)
+              )
+            ),
         listConversations: database
           .all<ConversationRow>(
-            "SELECT c.id, c.title, c.last_message_at, c.unread_count, GROUP_CONCAT(cp.participant_id) AS participant_ids FROM conversations c LEFT JOIN conversation_participants cp ON cp.conversation_id = c.id GROUP BY c.id ORDER BY c.last_message_at DESC"
+            "SELECT c.id, c.title, c.last_message_at, c.unread_count, GROUP_CONCAT(cp.participant_id) AS participant_ids FROM conversations c LEFT JOIN conversation_participants cp ON cp.conversation_id = c.id GROUP BY c.id ORDER BY c.last_message_at DESC LIMIT 100"
           )
           .pipe(
             Effect.map((rows) =>
@@ -289,6 +328,38 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
               repositoryError("conversations.list", cause)
             )
           ),
+        persistMessages: (conversationId, messages) =>
+          database
+            .batch([
+              ...messages.map((message) => ({
+                parameters: [
+                  message.id,
+                  message.conversationId,
+                  message.senderId,
+                  message.externalId,
+                  message.text,
+                  message.transport,
+                  message.sentAt.toISOString(),
+                  message.outgoing ? 1 : 0,
+                ],
+                query:
+                  "INSERT OR IGNORE INTO messages (id, conversation_id, sender_id, external_id, text, transport, sent_at, outgoing) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+              })),
+              {
+                parameters: [
+                  `google-messages-history:${conversationId}`,
+                  new Date().toISOString(),
+                ],
+                query:
+                  "INSERT OR REPLACE INTO sync_state (key, cursor, updated_at) VALUES (?, 'hydrated', ?)",
+              },
+            ])
+            .pipe(
+              Effect.mapError((cause) =>
+                repositoryError("messages.persist", cause)
+              ),
+              Effect.asVoid
+            ),
         releaseIdempotencyKey: (idempotencyKey, owner) =>
           database
             .run(
@@ -344,11 +415,34 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
           }).pipe(
             Effect.mapError((cause) => repositoryError("outbox.reserve", cause))
           ),
-        search: (query) =>
-          queryMessages(
-            database,
-            "SELECT conversation_id, external_id, id, outgoing, sender_id, sent_at, text, transport FROM messages WHERE text LIKE ? ORDER BY sent_at",
-            `%${query}%`
+        search: (query, request) =>
+          Effect.gen(function* searchPage() {
+            const cursor =
+              request.cursor === undefined
+                ? undefined
+                : decodeMessageCursor(request.cursor);
+            const rows = yield* queryMessages(
+              database,
+              cursor === undefined
+                ? "SELECT conversation_id, external_id, id, outgoing, sender_id, sent_at, text, transport FROM messages WHERE text LIKE ? COLLATE NOCASE ORDER BY sent_at, id LIMIT ?"
+                : "SELECT conversation_id, external_id, id, outgoing, sender_id, sent_at, text, transport FROM messages WHERE text LIKE ? COLLATE NOCASE AND (sent_at > ? OR (sent_at = ? AND id > ?)) ORDER BY sent_at, id LIMIT ?",
+              ...(cursor === undefined
+                ? [`%${query}%`, request.limit + 1]
+                : [
+                    `%${query}%`,
+                    cursor[0],
+                    cursor[0],
+                    cursor[1],
+                    request.limit + 1,
+                  ])
+            );
+            const messages = rows.slice(0, request.limit);
+            const last = messages.at(-1);
+            return rows.length > request.limit && last
+              ? { messages, nextCursor: messageCursor(last) }
+              : { messages };
+          }).pipe(
+            Effect.mapError((cause) => repositoryError("messages.query", cause))
           ),
         syncConversations: (conversations) =>
           database

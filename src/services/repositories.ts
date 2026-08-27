@@ -1,4 +1,5 @@
 import { Context, Effect, Layer } from "effect";
+import { z } from "zod";
 
 import type { Conversation, Message } from "../domain/message";
 import { GoogleMessages } from "./google-messages";
@@ -8,6 +9,31 @@ import { RepositoryError } from "./repository-error";
 export interface DeliveryReservation {
   readonly owner: string;
 }
+
+export interface MessagePageRequest {
+  readonly limit: number;
+  readonly cursor?: string;
+}
+
+export interface MessagePage {
+  readonly messages: readonly Message[];
+  readonly nextCursor?: string;
+}
+
+export const messageCursor = (message: Message) =>
+  btoa(JSON.stringify([message.sentAt.toISOString(), message.id]))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replaceAll("=", "");
+
+export const decodeMessageCursor = (
+  cursor: string
+): readonly [string, string] => {
+  const value: unknown = JSON.parse(
+    atob(cursor.replaceAll("-", "+").replaceAll("_", "/"))
+  );
+  return z.tuple([z.string(), z.string()]).parse(value);
+};
 
 /** Persistence failure. */
 /** Queryable message persistence port. */
@@ -23,11 +49,20 @@ export interface MessageRepositoryService {
     event: GoogleMessageEvent
   ) => Effect.Effect<void, RepositoryError>;
   readonly get: (
-    conversationId: string
-  ) => Effect.Effect<readonly Message[], RepositoryError>;
+    conversationId: string,
+    request: MessagePageRequest
+  ) => Effect.Effect<MessagePage, RepositoryError>;
   readonly search: (
-    query: string
-  ) => Effect.Effect<readonly Message[], RepositoryError>;
+    query: string,
+    request: MessagePageRequest
+  ) => Effect.Effect<MessagePage, RepositoryError>;
+  readonly persistMessages: (
+    conversationId: string,
+    messages: readonly Message[]
+  ) => Effect.Effect<void, RepositoryError>;
+  readonly isConversationHydrated: (
+    conversationId: string
+  ) => Effect.Effect<boolean, RepositoryError>;
   readonly commitDelivery: (
     idempotencyKey: string,
     owner: string,
@@ -108,14 +143,51 @@ export const MessageRepositoryMemory = Layer.effect(
         }),
       findByIdempotencyKey: (idempotencyKey) =>
         Effect.succeed(completed.get(idempotencyKey)),
-      get: (conversationId) =>
-        Effect.succeed(
-          state.messages.filter(
-            (message) => message.conversationId === conversationId
-          )
-        ),
+      get: (conversationId, request) => {
+        const messages = state.messages
+          .filter((message) => message.conversationId === conversationId)
+          .toSorted(
+            (a, b) =>
+              a.sentAt.getTime() - b.sentAt.getTime() ||
+              a.id.localeCompare(b.id)
+          );
+        const start =
+          request.cursor === undefined
+            ? 0
+            : messages.findIndex((message) => {
+                const [sentAt, id] = decodeMessageCursor(request.cursor ?? "");
+                return (
+                  message.sentAt.toISOString() > sentAt ||
+                  (message.sentAt.toISOString() === sentAt && message.id > id)
+                );
+              });
+        const page = messages.slice(
+          start < 0 ? messages.length : start,
+          request.limit + 1
+        );
+        const result = { messages: page.slice(0, request.limit) };
+        const last = page[request.limit - 1];
+        return Effect.succeed(
+          page.length > request.limit && last
+            ? { ...result, nextCursor: messageCursor(last) }
+            : result
+        );
+      },
       ingestEvent: () => Effect.void,
-      listConversations: Effect.succeed(conversations),
+      isConversationHydrated: () => Effect.succeed(true),
+      listConversations: Effect.succeed(conversations.slice(0, 100)),
+      persistMessages: (_conversationId, messages) =>
+        Effect.sync(() => {
+          for (const message of messages) {
+            if (
+              !state.messages.some(
+                (existing) => existing.externalId === message.externalId
+              )
+            ) {
+              state.messages.push(message);
+            }
+          }
+        }),
       releaseIdempotencyKey: (idempotencyKey, owner) =>
         Effect.sync(() => {
           if (reservations.get(idempotencyKey)?.owner === owner) {
@@ -148,12 +220,38 @@ export const MessageRepositoryMemory = Layer.effect(
           reservations.set(idempotencyKey, { conversationId, owner, text });
           return { owner };
         }),
-      search: (query) =>
-        Effect.succeed(
-          state.messages.filter((message) =>
+      search: (query, request) => {
+        const messages = state.messages
+          .filter((message) =>
             message.text.toLowerCase().includes(query.toLowerCase())
           )
-        ),
+          .toSorted(
+            (a, b) =>
+              a.sentAt.getTime() - b.sentAt.getTime() ||
+              a.id.localeCompare(b.id)
+          );
+        const start =
+          request.cursor === undefined
+            ? 0
+            : messages.findIndex((message) => {
+                const [sentAt, id] = decodeMessageCursor(request.cursor ?? "");
+                return (
+                  message.sentAt.toISOString() > sentAt ||
+                  (message.sentAt.toISOString() === sentAt && message.id > id)
+                );
+              });
+        const page = messages.slice(
+          start < 0 ? messages.length : start,
+          request.limit + 1
+        );
+        const result = { messages: page.slice(0, request.limit) };
+        const last = page[request.limit - 1];
+        return Effect.succeed(
+          page.length > request.limit && last
+            ? { ...result, nextCursor: messageCursor(last) }
+            : result
+        );
+      },
       syncConversations: () => Effect.void,
     } satisfies MessageRepositoryService;
   })
