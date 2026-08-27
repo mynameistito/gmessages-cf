@@ -22,7 +22,12 @@ interface SendWindow {
 }
 
 const SessionEnvelopeSchema = Schema.Struct({ ciphertext: Schema.String });
+const PairingStatusSchema = Schema.Struct({
+  paired: Schema.optional(Schema.Boolean),
+  pairing: Schema.optional(Schema.Boolean),
+});
 const sendWindowKey = "send-window";
+const pairingActiveKey = "pairing-active";
 const sendWindowMs = 60_000;
 const sendLimit = 10;
 
@@ -37,6 +42,8 @@ export class SessionCoordinator {
   }
 
   fetch(request: Request): Promise<Response> {
+    // The request pipeline is intentionally kept together to serialize this session owner.
+    // eslint-disable-next-line complexity
     return this.state.blockConcurrencyWhile(async () => {
       const url = new URL(request.url);
       const status = (await this.state.storage.get<CoordinatorStatus>(
@@ -47,6 +54,10 @@ export class SessionCoordinator {
       };
       const sessionEnvelope =
         await this.state.storage.get<SessionEnvelope>("session-envelope");
+      const isPairingRequest = url.pathname.startsWith("/v1/pair/");
+      const isPairingStatus = url.pathname === "/v1/pair/status";
+      const pairingActive =
+        (await this.state.storage.get<boolean>(pairingActiveKey)) ?? false;
       if (url.pathname !== "/status" && !url.pathname.startsWith("/v1/")) {
         return new Response("Not found", { status: 404 });
       }
@@ -95,7 +106,10 @@ export class SessionCoordinator {
         requestCount: status.requestCount + 1,
       });
       try {
-        if (sessionEnvelope !== undefined) {
+        if (
+          sessionEnvelope !== undefined &&
+          (!isPairingRequest || (isPairingStatus && !pairingActive))
+        ) {
           const imported = await SessionCoordinator.forward(
             new globalThis.Request(
               new URL("/v1/session/import", request.url).toString(),
@@ -111,8 +125,31 @@ export class SessionCoordinator {
             return new Response("Session recovery failed", { status: 503 });
           }
         }
+        if (
+          isPairingRequest &&
+          request.method === "POST" &&
+          url.pathname.endsWith("/start")
+        ) {
+          await this.state.storage.put(pairingActiveKey, true);
+        }
         const response = await SessionCoordinator.forward(request, container);
-        if (response.ok) {
+        let pairingCompleted = false;
+        let pairingStillActive = false;
+        if (isPairingStatus && response.ok) {
+          try {
+            const body = Schema.decodeUnknownSync(PairingStatusSchema)(
+              await response.clone().json()
+            );
+            pairingCompleted = body.paired === true;
+            pairingStillActive = body.pairing === true;
+          } catch {
+            pairingCompleted = false;
+          }
+          if (pairingActive && !pairingStillActive) {
+            await this.state.storage.delete(pairingActiveKey);
+          }
+        }
+        if (response.ok && (!isPairingRequest || pairingCompleted)) {
           const exported = await SessionCoordinator.forward(
             new globalThis.Request(
               new URL("/v1/session/export", request.url).toString(),
@@ -145,7 +182,7 @@ export class SessionCoordinator {
       headers: request.headers,
       method: request.method,
     });
-    return new globalThis.Response(await response.arrayBuffer(), {
+    return new globalThis.Response(response.body, {
       headers: [...response.headers.entries()],
       status: response.status,
     });

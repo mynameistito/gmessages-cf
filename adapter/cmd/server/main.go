@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,14 +29,16 @@ import (
 )
 
 type server struct {
-	client      *libgm.Client
-	token       string
-	subscribers map[chan serverEvent]struct{}
-	lifecycle   lifecycleState
-	pairing     bool
-	pairingURL  string
-	pairingFail bool
-	mu          sync.Mutex
+	client       *libgm.Client
+	token        string
+	subscribers  map[chan serverEvent]struct{}
+	lifecycle    lifecycleState
+	pairing      bool
+	pairingURL   string
+	pairingEmoji string
+	pairingFail  bool
+	pairingError string
+	mu           sync.Mutex
 }
 
 type lifecycleState string
@@ -67,6 +70,10 @@ type sendRequest struct {
 
 type sessionRequest struct {
 	Ciphertext string `json:"ciphertext"`
+}
+
+type accountPairingRequest struct {
+	Cookies map[string]string `json:"cookies"`
 }
 
 func main() {
@@ -122,6 +129,8 @@ func (s *server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		s.connect(writer, request)
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/pair/start":
 		s.startPairing(writer)
+	case request.Method == http.MethodPost && request.URL.Path == "/v1/pair/account/start":
+		s.startAccountPairing(writer, request)
 	case request.Method == http.MethodGet && request.URL.Path == "/v1/pair/status":
 		s.pairingStatus(writer)
 	case request.Method == http.MethodGet && request.URL.Path == "/v1/session/export":
@@ -168,10 +177,16 @@ func (s *server) updateLifecycle(event any) {
 	case *events.PairSuccessful, *events.ClientReady:
 		s.pairing = false
 		s.pairingURL = ""
+		s.pairingEmoji = ""
 		s.pairingFail = false
+		s.pairingError = ""
 		s.lifecycle = lifecyclePaired
 	case *events.GaiaLoggedOut:
 		s.lifecycle = lifecycleReauth
+		if !s.pairingFail {
+			s.pairingFail = true
+			s.pairingError = "google_session_reauthentication_required"
+		}
 	case *events.ListenFatalError:
 		s.lifecycle = lifecycleDisconnected
 	}
@@ -186,7 +201,9 @@ func (s *server) startPairing(writer http.ResponseWriter) {
 	}
 	s.pairing = true
 	s.pairingURL = ""
+	s.pairingEmoji = ""
 	s.pairingFail = false
+	s.pairingError = ""
 	s.mu.Unlock()
 	go func() {
 		qrURL, err := s.client.StartLogin()
@@ -206,12 +223,50 @@ func (s *server) startPairing(writer http.ResponseWriter) {
 	writeJSON(writer, http.StatusAccepted, map[string]any{"status": "pairing"})
 }
 
+func (s *server) startAccountPairing(writer http.ResponseWriter, request *http.Request) {
+	var input accountPairingRequest
+	if err := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 32*1024)).Decode(&input); err != nil || len(input.Cookies) == 0 {
+		writeError(writer, http.StatusBadRequest, "invalid_cookies", false)
+		return
+	}
+	s.mu.Lock()
+	if s.lifecycle == lifecyclePaired || s.pairing {
+		s.mu.Unlock()
+		writeError(writer, http.StatusConflict, "pairing_in_progress", false)
+		return
+	}
+	s.client.AuthData.SetCookies(input.Cookies)
+	s.pairing = true
+	s.pairingURL = ""
+	s.pairingEmoji = ""
+	s.pairingFail = false
+	s.mu.Unlock()
+	go func() {
+		err := s.client.DoGaiaPairing(context.Background(), func(emoji string) {
+			s.mu.Lock()
+			s.pairingEmoji = emoji
+			s.mu.Unlock()
+		})
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if err != nil && s.lifecycle != lifecyclePaired {
+			s.pairing = false
+			s.pairingFail = true
+			s.pairingError = classifyPairingError(err)
+			s.lifecycle = lifecycleUnpaired
+		}
+	}()
+	writeJSON(writer, http.StatusAccepted, map[string]any{"status": "pairing"})
+}
+
 func (s *server) pairingStatus(writer http.ResponseWriter) {
 	s.mu.Lock()
 	lifecycle := s.lifecycle
 	pairing := s.pairing
 	pairingURL := s.pairingURL
+	pairingEmoji := s.pairingEmoji
 	pairingFail := s.pairingFail
+	pairingError := s.pairingError
 	s.mu.Unlock()
 	response := map[string]any{
 		"connected": s.client.IsConnected(),
@@ -222,10 +277,41 @@ func (s *server) pairingStatus(writer http.ResponseWriter) {
 	if pairingURL != "" {
 		response["qrUrl"] = pairingURL
 	}
+	if pairingEmoji != "" {
+		response["verificationEmoji"] = pairingEmoji
+	}
 	if pairingFail {
-		response["error"] = "pairing_unavailable"
+		response["error"] = pairingError
 	}
 	writeJSON(writer, http.StatusOK, response)
+}
+
+func classifyPairingError(err error) string {
+	switch {
+	case errors.Is(err, libgm.ErrIncorrectEmoji):
+		return "incorrect_emoji"
+	case errors.Is(err, libgm.ErrPairingCancelled):
+		return "pairing_cancelled"
+	case errors.Is(err, libgm.ErrPairingTimeout):
+		return "pairing_timeout"
+	case errors.Is(err, libgm.ErrPairingInitTimeout):
+		return "pairing_initialization_timeout"
+	case errors.Is(err, libgm.ErrNoDevicesFound):
+		return "no_google_messages_device"
+	case errors.Is(err, libgm.ErrNoCookies):
+		return "missing_google_cookies"
+	default:
+		var httpError events.HTTPError
+		if errors.As(err, &httpError) && httpError.Resp != nil {
+			return fmt.Sprintf("google_http_%d", httpError.Resp.StatusCode)
+		}
+		const unknownPairingError = "unknown error pairing: "
+		if index := strings.Index(err.Error(), unknownPairingError); index >= 0 {
+			detail := err.Error()[index+len(unknownPairingError):]
+			return "google_pairing_failed_" + detail
+		}
+		return "google_pairing_failed"
+	}
 }
 
 func (s *server) events(writer http.ResponseWriter, request *http.Request) {
@@ -421,7 +507,7 @@ func normalizedMessage(message *gmproto.Message) map[string]any {
 		"id":             message.GetMessageID(),
 		"outgoing":       false,
 		"senderId":       message.GetParticipantID(),
-		"sentAt":         time.UnixMilli(message.GetTimestamp()).UTC().Format(time.RFC3339Nano),
+		"sentAt":         time.UnixMicro(message.GetTimestamp()).UTC().Format(time.RFC3339Nano),
 		"text":           text,
 		"transport":      "rcs",
 	}
@@ -470,7 +556,7 @@ func (s *server) conversations(writer http.ResponseWriter, request *http.Request
 			"id":          conversation.GetConversationID(),
 			"title":       conversation.GetName(),
 			"unread":      conversation.GetUnread(),
-			"updatedAtMs": conversation.GetLastMessageTimestamp(),
+			"updatedAtMs": time.UnixMicro(conversation.GetLastMessageTimestamp()).UnixMilli(),
 		})
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"conversations": result})

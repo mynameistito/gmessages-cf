@@ -41,6 +41,17 @@ done
 printf '%s' "$qr_url" | qrencode -t ANSIUTF8
 ```
 
+If the installed Google Messages app no longer offers QR pairing, use Gaia account pairing instead. Export the `messages.google.com` authentication cookies from the browser where the Google account is signed in, wrap them in a `cookies` JSON field in `cookies.json`, and submit them only to the local adapter:
+
+```bash
+curl -sS -X POST http://127.0.0.1:1337/admin/pair/account/start \
+  -H 'content-type: application/json' \
+  -H 'x-gmessages-test-token: local-admin-token' \
+  --data-binary @cookies.json
+```
+
+Poll the same pair status endpoint. Gaia pairing reports `verificationEmoji`; select the matching emoji in the Google Messages confirmation prompt on the phone. Cookie values are credentials: do not commit `cookies.json`, paste it into chat, or send it to a third-party service.
+
 Poll `/admin/pair/status` until `paired` is `true`:
 
 ```bash

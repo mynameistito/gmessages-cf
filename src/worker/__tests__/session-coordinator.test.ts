@@ -17,17 +17,21 @@ class StorageDouble {
   private readonly values = new Map<string, unknown>();
 
   readonly storage = {
+    delete: (key: string) => {
+      this.values.delete(key);
+      return Promise.resolve(true);
+    },
     get: <T>(key: string) =>
       Promise.resolve(this.values.get(key) as T | undefined),
     put: <T>(key: string, value: T) => {
       this.values.set(key, value);
       return Promise.resolve();
     },
-  } as Pick<DurableObjectStorage, "get" | "put">;
+  } as Pick<DurableObjectStorage, "delete" | "get" | "put">;
 }
 
 const makeState = (
-  storage: Pick<DurableObjectStorage, "get" | "put">
+  storage: Pick<DurableObjectStorage, "delete" | "get" | "put">
 ): DurableObjectState => {
   const state = {
     blockConcurrencyWhile: async <T>(callback: () => Promise<T>) =>
@@ -65,7 +69,7 @@ const makeContainer = (ciphertext: string, calls: string[]) => {
 };
 
 const makeCoordinator = (
-  storage: Pick<DurableObjectStorage, "get" | "put">,
+  storage: Pick<DurableObjectStorage, "delete" | "get" | "put">,
   ciphertext: string,
   calls: string[]
 ) =>
@@ -145,5 +149,30 @@ describe("session coordinator recovery", () => {
     const limited = await request();
     expect(limited.status).toBe(429);
     expect(limited.headers.get("retry-after")).toBe("60");
+  });
+
+  test("does not restore a stale session while Gaia pairing is active", async () => {
+    const storage = new StorageDouble();
+    await storage.storage.put("session-envelope", { ciphertext: "stale" });
+    const calls: string[] = [];
+    const coordinator = makeCoordinator(
+      storage.storage,
+      "valid-ciphertext",
+      calls
+    );
+
+    const start = await coordinator.fetch(
+      new Request("https://example.test/v1/pair/account/start", {
+        body: "{}",
+        method: "POST",
+      })
+    );
+    expect(start.status).toBe(200);
+    const status = await coordinator.fetch(
+      new Request("https://example.test/v1/pair/status")
+    );
+
+    expect(status.status).toBe(200);
+    expect(calls).not.toContain("POST /v1/session/import");
   });
 });

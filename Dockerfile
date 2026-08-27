@@ -1,4 +1,5 @@
 FROM golang:1.26 AS adapter
+# Rebuild this stage when the local adapter implementation changes.
 WORKDIR /src
 COPY gmessages ./gmessages
 COPY adapter ./adapter

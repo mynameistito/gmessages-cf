@@ -9,7 +9,7 @@ authentication: {}
 authenticationType: null
 body: {}
 bodyType: null
-description: Poll until qrUrl is returned, then render it with a local QR tool.
+description: Poll until verificationEmoji or qrUrl is returned. Gaia pairing uses the emoji shown in Google Messages; QR pairing uses a local QR tool.
 headers:
   - enabled: true
     name: x-gmessages-test-token

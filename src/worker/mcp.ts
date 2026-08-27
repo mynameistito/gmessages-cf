@@ -1,15 +1,23 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import type { Layer } from "effect/Layer";
 import { z } from "zod";
 
-import type {
-  GoogleMessages,
-  GoogleMessagesError,
-} from "../services/google-messages";
+import { GoogleMessagesError } from "../services/google-messages";
+import type { GoogleMessages } from "../services/google-messages";
 import { MessagingService } from "../services/messaging-service";
 import type { MessageRepository } from "../services/repositories";
+
+const toolErrorText = <E>(error: E) => {
+  if (error instanceof GoogleMessagesError) {
+    return error.reason;
+  }
+  if (error instanceof Error && error.message.length > 0) {
+    return error.message;
+  }
+  return "Google Messages request failed";
+};
 
 /** Create the small, structured MCP tool surface. */
 export const createMcpServer = (
@@ -20,23 +28,33 @@ export const createMcpServer = (
   >
 ) => {
   const server = new McpServer({ name: "gmessages-cf", version: "0.1.0" });
-  const run = <A, E>(
+  const runTool = async <A, E>(
     effect: Effect.Effect<A, E, GoogleMessages | MessageRepository>
-  ) => Effect.runPromise(Effect.provide(effect, services));
+  ) => {
+    const exit = await Effect.runPromiseExit(Effect.provide(effect, services));
+    if (exit._tag === "Success") {
+      return {
+        content: [{ text: JSON.stringify(exit.value), type: "text" as const }],
+      };
+    }
+    const error = Cause.squash(exit.cause);
+    return {
+      content: [
+        {
+          text: toolErrorText(error),
+          type: "text" as const,
+        },
+      ],
+      isError: true,
+    };
+  };
   server.registerTool(
     "messages.list_conversations",
     {
       description: "List synced Google Messages conversations.",
       inputSchema: {},
     },
-    async () => ({
-      content: [
-        {
-          text: JSON.stringify(await run(MessagingService.listConversations)),
-          type: "text",
-        },
-      ],
-    })
+    () => runTool(MessagingService.listConversations)
   );
   server.registerTool(
     "messages.get_conversation",
@@ -44,16 +62,8 @@ export const createMcpServer = (
       description: "Read messages in one conversation.",
       inputSchema: { conversationId: z.string().min(1) },
     },
-    async ({ conversationId }) => ({
-      content: [
-        {
-          text: JSON.stringify(
-            await run(MessagingService.getConversation(conversationId))
-          ),
-          type: "text",
-        },
-      ],
-    })
+    ({ conversationId }) =>
+      runTool(MessagingService.getConversation(conversationId))
   );
   server.registerTool(
     "messages.search",
@@ -61,14 +71,7 @@ export const createMcpServer = (
       description: "Search locally synced message text.",
       inputSchema: { query: z.string().min(1) },
     },
-    async ({ query }) => ({
-      content: [
-        {
-          text: JSON.stringify(await run(MessagingService.search(query))),
-          type: "text",
-        },
-      ],
-    })
+    ({ query }) => runTool(MessagingService.search(query))
   );
   server.registerTool(
     "messages.send",
@@ -81,18 +84,8 @@ export const createMcpServer = (
         text: z.string().min(1).max(4000),
       },
     },
-    async ({ conversationId, idempotencyKey, text }) => ({
-      content: [
-        {
-          text: JSON.stringify(
-            await run(
-              MessagingService.send(conversationId, text, idempotencyKey)
-            )
-          ),
-          type: "text",
-        },
-      ],
-    })
+    ({ conversationId, idempotencyKey, text }) =>
+      runTool(MessagingService.send(conversationId, text, idempotencyKey))
   );
   return server;
 };

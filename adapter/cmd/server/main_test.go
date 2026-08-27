@@ -66,6 +66,18 @@ func TestProtectedEndpointsRequireInternalToken(t *testing.T) {
 	}
 }
 
+func TestAccountPairingRejectsMissingCookies(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/v1/pair/account/start", strings.NewReader(`{"cookies":{}}`))
+	request.Header.Set("Authorization", "Bearer test-token")
+	recorder := httptest.NewRecorder()
+
+	newTestServer().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected bad request status 400, got %d", recorder.Code)
+	}
+}
+
 func TestSendRejectsMalformedInput(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/v1/conversations/demo/messages", strings.NewReader("{}"))
 	request.Header.Set("Authorization", "Bearer test-token")

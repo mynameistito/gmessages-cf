@@ -124,7 +124,7 @@ export default {
     }
     if (url.pathname === "/health") {
       return Response.json({
-        container: "fake",
+        container: env.GMESSAGES_MODE === "real" ? "real" : "fake",
         paired: false,
         status: "healthy",
       });
@@ -172,7 +172,7 @@ export default {
             headers: coordinatorRequest.headers,
             method: coordinatorRequest.method,
           });
-          return new globalThis.Response(await response.arrayBuffer(), {
+          return new globalThis.Response(response.body, {
             headers: [...response.headers.entries()],
             status: response.status,
           });

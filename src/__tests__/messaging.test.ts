@@ -18,6 +18,7 @@ import {
 import type { GoogleMessagesService } from "../services/google-messages";
 import { MessagingService } from "../services/messaging-service";
 import { MessageRepositoryMemory } from "../services/repositories";
+import { handleMcpRequest } from "../worker/mcp";
 import worker from "../worker/worker";
 
 const services = GoogleMessagesTest.pipe(
@@ -304,5 +305,45 @@ test("MCP client can initialize, list, read, search, and send", async () => {
     name: "messages.send",
   });
   expect(invalid.isError).toBe(true);
+  await client.close();
+});
+
+test("MCP returns provider failures as non-empty tool errors", async () => {
+  const failingProvider = Layer.succeed(GoogleMessages, {
+    connect: Effect.fail(
+      new GoogleMessagesError({
+        reason: "provider unavailable",
+        retryable: true,
+      })
+    ),
+    conversations: Effect.succeed([]),
+    events: Stream.empty,
+    messages: () => Effect.succeed([]),
+    send: () => Effect.die("send is not exercised by this test"),
+  } satisfies GoogleMessagesService);
+  const failingServices = failingProvider.pipe(
+    Layer.merge(MessageRepositoryMemory.pipe(Layer.provide(failingProvider)))
+  );
+  const client = new Client({ name: "failing-test-client", version: "1.0.0" });
+  const transport = new StreamableHTTPClientTransport(
+    new URL("https://example.test/mcp"),
+    {
+      fetch: (input, init) =>
+        handleMcpRequest(new Request(input.toString(), init), failingServices),
+    }
+  );
+
+  await client.connect(transport);
+  const result = await client.callTool({
+    arguments: {},
+    name: "messages.list_conversations",
+  });
+
+  expect(result.isError).toBe(true);
+  expect(result.content).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ text: "provider unavailable", type: "text" }),
+    ])
+  );
   await client.close();
 });
