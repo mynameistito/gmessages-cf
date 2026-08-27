@@ -201,10 +201,13 @@ func TestSessionDecryptionRejectsTampering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encrypt session: %v", err)
 	}
-	if len(ciphertext) < 2 {
+	sealed, err := base64.RawURLEncoding.DecodeString(ciphertext)
+	if err != nil || len(sealed) < 2 {
 		t.Fatal("expected ciphertext")
 	}
-	if _, err := decryptSession(ciphertext[:len(ciphertext)-1]+"x", key); err == nil {
+	sealed[len(sealed)-1] ^= 1
+	tampered := base64.RawURLEncoding.EncodeToString(sealed)
+	if _, err := decryptSession(tampered, key); err == nil {
 		t.Fatal("expected tampered ciphertext to be rejected")
 	}
 }
