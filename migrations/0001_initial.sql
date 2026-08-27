@@ -1,0 +1,14 @@
+CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT NOT NULL, last_message_at TEXT NOT NULL, unread_count INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE participants (id TEXT PRIMARY KEY, address TEXT NOT NULL, display_name TEXT);
+CREATE TABLE conversation_participants (conversation_id TEXT NOT NULL, participant_id TEXT NOT NULL, PRIMARY KEY (conversation_id, participant_id));
+CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, sender_id TEXT NOT NULL, external_id TEXT NOT NULL UNIQUE, text TEXT NOT NULL, transport TEXT NOT NULL, sent_at TEXT NOT NULL, outgoing INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE message_parts (message_id TEXT NOT NULL, part_index INTEGER NOT NULL, text TEXT, attachment_id TEXT, PRIMARY KEY (message_id, part_index));
+CREATE TABLE reactions (message_id TEXT NOT NULL, participant_id TEXT NOT NULL, reaction TEXT NOT NULL, PRIMARY KEY (message_id, participant_id));
+CREATE TABLE receipts (message_id TEXT NOT NULL, participant_id TEXT NOT NULL, kind TEXT NOT NULL, occurred_at TEXT NOT NULL, PRIMARY KEY (message_id, participant_id, kind));
+CREATE TABLE attachments (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, object_key TEXT NOT NULL UNIQUE, mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL);
+CREATE TABLE sync_state (key TEXT PRIMARY KEY, cursor TEXT, updated_at TEXT NOT NULL);
+CREATE TABLE outbox (operation_id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL UNIQUE, conversation_id TEXT NOT NULL, text TEXT NOT NULL, status TEXT NOT NULL, external_id TEXT);
+CREATE TABLE protocol_events (external_id TEXT PRIMARY KEY, event_type TEXT NOT NULL, received_at TEXT NOT NULL, payload_hash TEXT NOT NULL);
+CREATE INDEX messages_conversation_chronology ON messages (conversation_id, sent_at);
+CREATE INDEX messages_text_search ON messages (text);
+CREATE INDEX outbox_status ON outbox (status);

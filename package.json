@@ -1,0 +1,37 @@
+{
+  "name": "gmessages-cf",
+  "private": true,
+  "type": "module",
+  "module": "index.ts",
+  "scripts": {
+    "check": "ultracite check",
+    "fix": "ultracite fix",
+    "typecheck": "tsc --noEmit",
+    "format:check": "oxfmt --check .",
+    "test": "bun test",
+    "prepare": "lefthook install"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.3.7",
+    "@effect/platform-bun": "4.0.0-rc.110",
+    "@effect/platform-node": "4.0.0-rc.110",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "effect": "4.0.0-rc.110",
+    "jose": "^6.2.10",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260827.1",
+    "@types/bun": "latest",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "alchemy": "^2.0.0-beta.74",
+    "eslint-plugin-github": "6.1.2",
+    "eslint-plugin-sonarjs": "^4.2.0",
+    "lefthook": "^2.1.10",
+    "oxfmt": "^0.65.0",
+    "oxlint": "^1.80.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "ultracite": "7.10.7",
+    "wrangler": "^4.127.0"
+  }
+}

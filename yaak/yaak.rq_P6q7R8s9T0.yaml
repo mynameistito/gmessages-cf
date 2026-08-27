@@ -1,0 +1,41 @@
+type: http_request
+model: http_request
+id: rq_P6q7R8s9T0
+createdAt: 2026-08-27T00:00:00.000
+updatedAt: 2026-08-27T00:00:00.000
+workspaceId: wk_UkmudYKHUW
+folderId: fl_McpTst1234
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {},
+        "clientInfo": {"name": "yaak", "version": "1.0.0"}
+      }
+    }
+bodyType: application/json
+description: Initialize the Streamable HTTP MCP session.
+headers:
+  - enabled: true
+    name: Accept
+    value: application/json, text/event-stream
+    id: hdr_init_accept
+  - enabled: true
+    name: Content-Type
+    value: application/json
+    id: hdr_init_content
+  - enabled: true
+    name: x-gmessages-test-token
+    value: local-mcp-token
+    id: hdr_init_token
+method: POST
+name: MCP Initialize
+sortPriority: 0
+url: http://127.0.0.1:1337/mcp
+urlParameters: []

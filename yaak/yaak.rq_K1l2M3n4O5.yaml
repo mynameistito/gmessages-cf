@@ -1,0 +1,22 @@
+type: http_request
+model: http_request
+id: rq_K1l2M3n4O5
+createdAt: 2026-08-27T00:00:00.000
+updatedAt: 2026-08-27T00:00:00.000
+workspaceId: wk_UkmudYKHUW
+folderId: fl_yW9ZzDLnxD
+authentication: {}
+authenticationType: null
+body: {}
+bodyType: null
+description: Poll until qrUrl is returned, then render it with a local QR tool.
+headers:
+  - enabled: true
+    name: x-gmessages-test-token
+    value: local-admin-token
+    id: hdr_pair_status_token
+method: GET
+name: Pair Status
+sortPriority: 2
+url: http://127.0.0.1:1337/admin/pair/status
+urlParameters: []

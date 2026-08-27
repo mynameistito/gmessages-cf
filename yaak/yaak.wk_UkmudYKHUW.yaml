@@ -1,0 +1,14 @@
+type: workspace
+model: workspace
+id: wk_UkmudYKHUW
+createdAt: 2026-08-27T00:00:00.000
+updatedAt: 2026-08-27T00:00:00.000
+authentication: {}
+authenticationType: null
+description: Local Google Messages MCP pairing and testing
+headers: []
+name: gmessages-cf
+encryptionKeyChallenge: null
+settingValidateCertificates: true
+settingFollowRedirects: true
+settingRequestTimeout: 0

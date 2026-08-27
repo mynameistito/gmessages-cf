@@ -1,0 +1,22 @@
+type: http_request
+model: http_request
+id: rq_A1b2C3d4E5
+createdAt: 2026-08-27T00:00:00.000
+updatedAt: 2026-08-27T00:00:00.000
+workspaceId: wk_UkmudYKHUW
+folderId: fl_yW9ZzDLnxD
+authentication: {}
+authenticationType: null
+body: {}
+bodyType: null
+description: Authenticated Worker health check.
+headers:
+  - enabled: true
+    name: x-gmessages-test-token
+    value: local-mcp-token
+    id: hdr_health_token
+method: GET
+name: Health
+sortPriority: 0
+url: http://127.0.0.1:1337/health
+urlParameters: []
