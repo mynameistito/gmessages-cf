@@ -8,6 +8,8 @@ bun test
 bun alchemy dev
 ```
 
+CI initializes the pinned adapter submodule before installing from `bun.lock`, then runs TypeScript typechecking, Ultracite, oxfmt, Bun tests, and the adapter package tests/vet. Docker and CGO-dependent adapter checks are separate and nonblocking; run them manually when Docker Desktop and the native headers are available.
+
 The fake Worker, provider, repository, authentication layer, Streamable HTTP MCP transport, and health route require no Google credentials and never send real messages. Use `x-gmessages-test-token: local-mcp-token` only for local tests.
 
 Real mode is not the local default. Copy `.env.example` to `.env` when creating a local environment; the checked-in `.env` contains only fake-mode values. When explicitly enabled, the isolated Go adapter uses localhost HTTP IPC, the pinned upstream source, encrypted session state, and the `GoogleMessages` Effect service. It must not bypass Google protections.

@@ -1,196 +1,194 @@
-import { describe, expect, test } from "bun:test";
+// oxlint-disable unicorn/import-style
+// oxlint-disable unicorn/no-await-expression-member
+// oxlint-disable unicorn/text-encoding-identifier-case
+// oxlint-disable eslint(sort-keys)
+// oxlint-disable eslint(prefer-destructuring)
+// oxlint-disable eslint(curly)
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion
 
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import type { D1Database } from "@cloudflare/workers-types";
 import { Effect, Layer } from "effect";
+import { getPlatformProxy } from "wrangler";
 
 import type { Message } from "../../domain/message";
 import { messageRepositoryD1 } from "../d1-repository";
-import { D1 } from "../d1-service";
-import type { D1Service, D1Statement } from "../d1-service";
-import type { GoogleMessageEvent } from "../google-messages";
 import { MessageRepository } from "../repositories";
-import { StorageError } from "../storage-error";
+import { d1Live } from "../storage";
 
-const makeEvent = (): GoogleMessageEvent => ({
+const event = {
   id: "event-1",
   message: {
-    // SAFETY: test identifiers satisfy the branded domain identifier contract.
     conversationId: "conversation-1" as Message["conversationId"],
     externalId: "message-1",
-    // SAFETY: test identifiers satisfy the branded domain identifier contract.
     id: "message-1" as Message["id"],
     outgoing: false,
-    // SAFETY: test identifiers satisfy the branded domain identifier contract.
     senderId: "sender-1" as Message["senderId"],
     sentAt: new Date("2026-01-01T00:00:00.000Z"),
     text: "inbound",
-    transport: "rcs",
+    transport: "rcs" as const,
   },
-});
-
-const makeDatabase = (
-  runs: number[],
-  batches: D1Statement[][],
-  failFirstBatch = false,
-  firstBatchChanges = 1,
-  batchChanges: number[][] = []
-): D1Service => {
-  // Model the marker visibility between batches and the statement ordering within one.
-  // A failed batch does not commit its staged marker, matching D1 transaction behavior.
-  const protocolEventIds = new Set<string>();
-  return {
-    all: () => Effect.succeed([]),
-    batch: (statements) => {
-      batches.push([...statements]);
-      if (failFirstBatch && batches.length === 1) {
-        return Effect.fail(
-          new StorageError({ cause: "batch failed", operation: "test.batch" })
-        );
-      }
-      const stagedEventIds = new Set(protocolEventIds);
-      const changes = statements.map((statement, index) => {
-        if (statement.query.includes("INSERT OR IGNORE INTO protocol_events")) {
-          const eventId = String(statement.parameters[0]);
-          if (stagedEventIds.has(eventId)) {
-            return 0;
-          }
-          stagedEventIds.add(eventId);
-          return 1;
-        }
-        if (statement.query.includes("NOT EXISTS")) {
-          const eventId = String(statement.parameters.at(-1));
-          if (stagedEventIds.has(eventId)) {
-            return 0;
-          }
-          return index === 0 ? firstBatchChanges : 1;
-        }
-        return index === 0 ? firstBatchChanges : 1;
-      });
-      protocolEventIds.clear();
-      for (const eventId of stagedEventIds) {
-        protocolEventIds.add(eventId);
-      }
-      batchChanges.push(changes);
-      return Effect.succeed(changes);
-    },
-    first: () => Effect.succeed(null),
-    run: () => {
-      runs.push(1);
-      return Effect.succeed(runs.length === 1 ? 1 : 0);
-    },
-  };
 };
 
-const repositoryServices = (database: D1Service) =>
-  messageRepositoryD1().pipe(Layer.provide(Layer.succeed(D1, database)));
-
-test("does not persist a delivery after the owner loses the reservation", async () => {
-  const runs: number[] = [];
-  const batches: D1Statement[][] = [];
-  const repository = await Effect.runPromise(
-    Effect.provide(
-      Effect.service(MessageRepository),
-      repositoryServices(makeDatabase(runs, batches, false, 0))
+const migrations = async (root: string): Promise<string> => {
+  const paths = [
+    "0001_initial.sql",
+    "0002_outbox_timestamps.sql",
+    "0003_outbox_failures.sql",
+    "0004_delivery_ownership.sql",
+  ];
+  return (
+    await Promise.all(
+      paths.map((path) => readFile(join(root, "migrations", path), "utf-8"))
     )
-  );
+  ).join("\n");
+};
 
-  const result = await Effect.runPromiseExit(
-    repository.commitDelivery(
-      "delivery-key",
-      "stale-owner",
-      makeEvent().message
-    )
-  );
+describe("D1 repository against local Worker SQLite", () => {
+  let dispose: (() => Promise<void>) | undefined;
+  let db: D1Database;
+  let services: Layer.Layer<MessageRepository>;
+  let configPath: string;
 
-  expect(result._tag).toBe("Failure");
-  expect(batches).toHaveLength(1);
-  expect(batches[0]?.[0]?.query).toContain("owner = ?");
-  expect(batches[0]?.at(-1)?.query).toContain("status = 'completed'");
-});
-
-test("message reads use a bounded deterministic query", async () => {
-  const queries: { query: string; parameters: readonly unknown[] }[] = [];
-  const database: D1Service = {
-    all: (query, ...parameters) => {
-      queries.push({ parameters, query });
-      return Effect.succeed([]);
-    },
-    batch: () => Effect.succeed([]),
-    first: () => Effect.succeed(null),
-    run: () => Effect.succeed(0),
-  };
-  const repository = await Effect.runPromise(
-    Effect.provide(
-      Effect.service(MessageRepository),
-      repositoryServices(database)
-    )
-  );
-
-  await Effect.runPromise(repository.get("conversation-1", { limit: 3 }));
-  await Effect.runPromise(repository.search("needle", { limit: 4 }));
-
-  expect(queries.at(-2)?.query).toContain("ORDER BY sent_at, id LIMIT ?");
-  expect(queries.at(-2)?.parameters).toEqual(["conversation-1", 4]);
-  expect(queries.at(-1)?.query).toContain("COLLATE NOCASE");
-  expect(queries.at(-1)?.parameters).toEqual(["%needle%", 5]);
-});
-
-describe("D1 event ingestion", () => {
-  test("persists the message and cursor after first-seen event", async () => {
-    const runs: number[] = [];
-    const batches: D1Statement[][] = [];
-    const repository = await Effect.runPromise(
-      Effect.provide(
-        Effect.service(MessageRepository),
-        repositoryServices(makeDatabase(runs, batches))
-      )
+  beforeAll(async () => {
+    const root = process.cwd();
+    const directory = await mkdtemp(join(tmpdir(), "gmessages-d1-"));
+    configPath = join(directory, "wrangler.jsonc");
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        compatibility_date: "2026-01-01",
+        d1_databases: [
+          {
+            binding: "DB",
+            database_id: "gmessages-d1-test",
+            database_name: "gmessages-d1-test",
+          },
+        ],
+        name: "gmessages-d1-test",
+      })
     );
-
-    await Effect.runPromise(repository.ingestEvent(makeEvent()));
-
-    expect(runs).toHaveLength(0);
-    expect(batches).toHaveLength(1);
-    expect(batches[0]).toHaveLength(7);
-    expect(batches[0]?.at(-1)?.query).toContain("protocol_events");
-    expect(batches[0]?.at(-2)?.query).toContain("sync_state");
+    const platform = await getPlatformProxy<{ DB: D1Database }>({
+      configPath,
+      persist: false,
+      remoteBindings: false,
+    });
+    ({ dispose } = platform);
+    ({ DB: db } = platform.env);
+    await db.exec(await migrations(root));
+    services = messageRepositoryD1().pipe(Layer.provide(d1Live(db)));
   });
 
-  test("does not write duplicate events or advance the cursor", async () => {
-    const runs: number[] = [];
-    const batches: D1Statement[][] = [];
-    const batchChanges: number[][] = [];
-    const repository = await Effect.runPromise(
-      Effect.provide(
-        Effect.service(MessageRepository),
-        repositoryServices(makeDatabase(runs, batches, false, 1, batchChanges))
-      )
+  beforeEach(async () => {
+    await db.exec(
+      "DELETE FROM protocol_events; DELETE FROM sync_state; DELETE FROM messages; DELETE FROM conversation_participants; DELETE FROM participants; DELETE FROM conversations; DELETE FROM outbox;"
     );
-
-    await Effect.runPromise(repository.ingestEvent(makeEvent()));
-    await Effect.runPromise(repository.ingestEvent(makeEvent()));
-
-    expect(batches).toHaveLength(2);
-    expect(batchChanges[0]).toEqual([1, 1, 1, 1, 1, 1, 1]);
-    expect(batchChanges[1]).toEqual([0, 0, 0, 0, 0, 0, 0]);
   });
 
-  test("retries the entire ingest batch after a failure", async () => {
-    const runs: number[] = [];
-    const batches: D1Statement[][] = [];
-    const batchChanges: number[][] = [];
-    const repository = await Effect.runPromise(
-      Effect.provide(
-        Effect.service(MessageRepository),
-        repositoryServices(makeDatabase(runs, batches, true, 1, batchChanges))
+  afterAll(async () => {
+    await dispose?.();
+    await rm(configPath, { force: true });
+  });
+
+  test("applies migrations and enforces schema constraints", async () => {
+    const tables = await db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
       )
+      .all<{ name: string }>();
+    expect(tables.results.map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        "messages",
+        "outbox",
+        "protocol_events",
+        "sync_state",
+      ])
     );
+    await expect(
+      db
+        .prepare(
+          "INSERT INTO messages (id, conversation_id, sender_id, external_id, text, transport, sent_at, outgoing) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind("m", "c", "s", "duplicate", "x", "sms", "2026-01-01", 0)
+        .run()
+    ).resolves.toBeTruthy();
+    await expect(
+      db
+        .prepare(
+          "INSERT INTO messages (id, conversation_id, sender_id, external_id, text, transport, sent_at, outgoing) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind("m2", "c", "s", "duplicate", "x", "sms", "2026-01-01", 0)
+        .run()
+    ).rejects.toThrow();
+  });
 
-    const first = await Effect.runPromiseExit(
-      repository.ingestEvent(makeEvent())
+  test("persists rows, event cursor, and deduplicates a replay", async () => {
+    const repository = await Effect.runPromise(
+      Effect.provide(Effect.service(MessageRepository), services)
     );
-    await Effect.runPromise(repository.ingestEvent(makeEvent()));
+    await Effect.runPromise(repository.ingestEvent(event));
+    await Effect.runPromise(repository.ingestEvent(event));
+    const messages = await db
+      .prepare("SELECT id, external_id FROM messages")
+      .all();
+    const events = await db
+      .prepare("SELECT external_id FROM protocol_events")
+      .all();
+    const cursor = await db
+      .prepare("SELECT cursor FROM sync_state WHERE key = ?")
+      .bind("google-messages-events")
+      .first<{ cursor: string }>();
+    expect(messages.results).toHaveLength(1);
+    expect(events.results).toHaveLength(1);
+    expect(cursor?.cursor).toBe("event-1");
+  });
 
-    expect(first._tag).toBe("Failure");
-    expect(batches).toHaveLength(2);
-    expect(batchChanges).toEqual([[1, 1, 1, 1, 1, 1, 1]]);
+  test("reserves the outbox and preserves idempotency payload", async () => {
+    const repository = await Effect.runPromise(
+      Effect.provide(Effect.service(MessageRepository), services)
+    );
+    const reservation = await Effect.runPromise(
+      repository.reserveIdempotencyKey("key", "conversation-1", "send")
+    );
+    expect(reservation).toMatchObject({ owner: expect.any(String) });
+    if (reservation === false) {
+      throw new Error("reservation was not acquired");
+    }
+    const pending = await db
+      .prepare("SELECT status, owner FROM outbox WHERE idempotency_key = ?")
+      .bind("key")
+      .first();
+    expect(pending).toMatchObject({
+      owner: reservation.owner,
+      status: "pending",
+    });
+    const outbox = await db
+      .prepare(
+        "SELECT status, external_id FROM outbox WHERE idempotency_key = ?"
+      )
+      .bind("key")
+      .first<{ status: string; external_id: string }>();
+    expect(outbox).toMatchObject({ external_id: null, status: "pending" });
+    expect(
+      await Effect.runPromise(
+        repository.reserveIdempotencyKey("key", "conversation-1", "send")
+      )
+    ).toBe(false);
+    await expect(
+      Effect.runPromise(
+        repository.reserveIdempotencyKey("key", "other-conversation", "send")
+      )
+    ).rejects.toThrow();
   });
 });

@@ -62,6 +62,8 @@ go test ./cmd/server
 go vet ./cmd/server
 ```
 
+The GitHub workflow initializes submodules and runs the TypeScript and adapter gates independently. Docker/CGO integration is intentionally manual or nonblocking so credential-free CI does not depend on Docker Desktop or native `olm` headers.
+
 `go test ./...` additionally requires the native `olm/olm.h` development headers. Docker Desktop Linux must be running for container integration checks.
 
 On Windows, run the full Go gate in disposable Ubuntu Linux when the host does not have the native toolchain:
