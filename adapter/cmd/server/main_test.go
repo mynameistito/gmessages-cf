@@ -105,6 +105,49 @@ func TestPairingErrorsIdentifySafeFailureStage(t *testing.T) {
 			t.Fatalf("expected %q for %q, got %q", expected, message, actual)
 		}
 	}
+	unknown := "unknown error pairing: provider secret"
+	if actual := classifyPairingError(errors.New(unknown)); actual == "" || strings.Contains(actual, "provider secret") {
+		t.Fatalf("expected non-empty safe QR failure, got %q", actual)
+	}
+}
+
+func TestConversationIDRoutes(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+		ok   bool
+	}{
+		{name: "normal", path: "/v1/conversations/abc/messages", want: "abc", ok: true},
+		{name: "encoded", path: "/v1/conversations/abc%2F123/messages", want: "abc/123", ok: true},
+		{name: "missing id", path: "/v1/conversations//messages", ok: false},
+		{name: "missing messages", path: "/v1/conversations/abc", ok: false},
+		{name: "extra segment", path: "/v1/conversations/abc/extra/messages", ok: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			id, ok := conversationID(httptest.NewRequest(http.MethodGet, test.path, nil))
+			if id != test.want || ok != test.ok {
+				t.Fatalf("conversationID(%q) = %q, %t; want %q, %t", test.path, id, ok, test.want, test.ok)
+			}
+		})
+	}
+}
+
+func TestConversationRoutesRejectMalformedGETAndPOST(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		t.Run(method, func(t *testing.T) {
+			request := httptest.NewRequest(method, "/v1/conversations/abc/extra/messages", strings.NewReader(`{"text":"hello","idempotencyKey":"key"}`))
+			request.Header.Set("Authorization", "Bearer test-token")
+			recorder := httptest.NewRecorder()
+
+			newTestServer().ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusNotFound {
+				t.Fatalf("expected malformed %s route to return 404, got %d", method, recorder.Code)
+			}
+		})
+	}
 }
 
 func TestSendRejectsMalformedInput(t *testing.T) {

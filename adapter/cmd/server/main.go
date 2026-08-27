@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
-	"path"
 	"strings"
 	"sync"
 	"time"
@@ -142,10 +142,18 @@ func (s *server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		s.events(writer, request)
 	case request.Method == http.MethodGet && request.URL.Path == "/v1/conversations":
 		s.conversations(writer, request)
-	case request.Method == http.MethodGet && strings.HasPrefix(request.URL.Path, "/v1/conversations/"):
-		s.messages(writer, request)
-	case request.Method == http.MethodPost && strings.HasPrefix(request.URL.Path, "/v1/conversations/"):
-		s.send(writer, request)
+	case request.Method == http.MethodGet:
+		if _, ok := conversationID(request); ok {
+			s.messages(writer, request)
+			return
+		}
+		writeError(writer, http.StatusNotFound, "not_found", false)
+	case request.Method == http.MethodPost:
+		if _, ok := conversationID(request); ok {
+			s.send(writer, request)
+			return
+		}
+		writeError(writer, http.StatusNotFound, "not_found", false)
 	default:
 		writeError(writer, http.StatusNotFound, "not_found", false)
 	}
@@ -223,6 +231,7 @@ func (s *server) startPairing(writer http.ResponseWriter) {
 		if err != nil {
 			s.pairing = false
 			s.pairingFail = true
+			s.pairingError = classifyPairingError(err)
 			s.lifecycle = lifecycleUnpaired
 			return
 		}
@@ -315,11 +324,6 @@ func classifyPairingError(err error) string {
 		var httpError events.HTTPError
 		if errors.As(err, &httpError) && httpError.Resp != nil {
 			return fmt.Sprintf("google_http_%d", httpError.Resp.StatusCode)
-		}
-		const unknownPairingError = "unknown error pairing: "
-		if index := strings.Index(err.Error(), unknownPairingError); index >= 0 {
-			detail := err.Error()[index+len(unknownPairingError):]
-			return "google_pairing_failed_" + detail
 		}
 		switch {
 		case strings.Contains(err.Error(), "failed to prepare gaia pairing"):
@@ -467,12 +471,31 @@ func decodeSessionKey(encoded string) ([]byte, error) {
 	return key, nil
 }
 
-func conversationID(request *http.Request) string {
-	return path.Base(request.URL.Path)
+func conversationID(request *http.Request) (string, bool) {
+	const prefix = "/v1/conversations/"
+	const suffix = "/messages"
+	escapedPath := request.URL.EscapedPath()
+	if !strings.HasPrefix(escapedPath, prefix) || !strings.HasSuffix(escapedPath, suffix) {
+		return "", false
+	}
+	escapedID := strings.TrimSuffix(strings.TrimPrefix(escapedPath, prefix), suffix)
+	if escapedID == "" || strings.Contains(escapedID, "/") {
+		return "", false
+	}
+	id, err := url.PathUnescape(escapedID)
+	if err != nil || id == "" {
+		return "", false
+	}
+	return id, true
 }
 
 func (s *server) messages(writer http.ResponseWriter, request *http.Request) {
-	response, err := s.client.FetchMessages(context.Background(), conversationID(request), 100, nil)
+	id, ok := conversationID(request)
+	if !ok {
+		writeError(writer, http.StatusNotFound, "not_found", false)
+		return
+	}
+	response, err := s.client.FetchMessages(context.Background(), id, 100, nil)
 	if err != nil {
 		writeError(writer, http.StatusServiceUnavailable, "provider_failure", true)
 		return
@@ -490,11 +513,16 @@ func (s *server) send(writer http.ResponseWriter, request *http.Request) {
 		writeError(writer, http.StatusBadRequest, "invalid_input", false)
 		return
 	}
-	tmpID := providerMessageID(conversationID(request), input.IdempotencyKey)
+	id, ok := conversationID(request)
+	if !ok {
+		writeError(writer, http.StatusNotFound, "not_found", false)
+		return
+	}
+	tmpID := providerMessageID(id, input.IdempotencyKey)
 	_, err := s.client.SendMessage(context.Background(), &gmproto.SendMessageRequest{
-		ConversationID: conversationID(request),
+		ConversationID: id,
 		MessagePayload: &gmproto.MessagePayload{
-			ConversationID: conversationID(request),
+			ConversationID: id,
 			TmpID:          tmpID,
 			MessagePayloadContent: &gmproto.MessagePayloadContent{
 				MessageContent: &gmproto.MessageContent{Content: input.Text},
@@ -506,7 +534,7 @@ func (s *server) send(writer http.ResponseWriter, request *http.Request) {
 		writeError(writer, http.StatusServiceUnavailable, "provider_failure", true)
 		return
 	}
-	writeJSON(writer, http.StatusOK, normalizedOutboundMessage(conversationID(request), tmpID, input.Text))
+	writeJSON(writer, http.StatusOK, normalizedOutboundMessage(id, tmpID, input.Text))
 }
 
 func providerMessageID(conversationID, idempotencyKey string) string {
