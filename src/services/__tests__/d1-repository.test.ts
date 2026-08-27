@@ -31,26 +31,54 @@ const makeDatabase = (
   runs: number[],
   batches: D1Statement[][],
   failFirstBatch = false,
-  firstBatchChanges = 1
-): D1Service => ({
-  all: () => Effect.succeed([]),
-  batch: (statements) => {
-    batches.push([...statements]);
-    if (failFirstBatch && batches.length === 1) {
-      return Effect.fail(
-        new StorageError({ cause: "batch failed", operation: "test.batch" })
-      );
-    }
-    return Effect.succeed(
-      statements.map((_, index) => (index === 0 ? firstBatchChanges : 1))
-    );
-  },
-  first: () => Effect.succeed(null),
-  run: () => {
-    runs.push(1);
-    return Effect.succeed(runs.length === 1 ? 1 : 0);
-  },
-});
+  firstBatchChanges = 1,
+  batchChanges: number[][] = []
+): D1Service => {
+  // Model the marker visibility between batches and the statement ordering within one.
+  // A failed batch does not commit its staged marker, matching D1 transaction behavior.
+  const protocolEventIds = new Set<string>();
+  return {
+    all: () => Effect.succeed([]),
+    batch: (statements) => {
+      batches.push([...statements]);
+      if (failFirstBatch && batches.length === 1) {
+        return Effect.fail(
+          new StorageError({ cause: "batch failed", operation: "test.batch" })
+        );
+      }
+      const stagedEventIds = new Set(protocolEventIds);
+      const changes = statements.map((statement, index) => {
+        if (statement.query.includes("INSERT OR IGNORE INTO protocol_events")) {
+          const eventId = String(statement.parameters[0]);
+          if (stagedEventIds.has(eventId)) {
+            return 0;
+          }
+          stagedEventIds.add(eventId);
+          return 1;
+        }
+        if (statement.query.includes("NOT EXISTS")) {
+          const eventId = String(statement.parameters.at(-1));
+          if (stagedEventIds.has(eventId)) {
+            return 0;
+          }
+          return index === 0 ? firstBatchChanges : 1;
+        }
+        return index === 0 ? firstBatchChanges : 1;
+      });
+      protocolEventIds.clear();
+      for (const eventId of stagedEventIds) {
+        protocolEventIds.add(eventId);
+      }
+      batchChanges.push(changes);
+      return Effect.succeed(changes);
+    },
+    first: () => Effect.succeed(null),
+    run: () => {
+      runs.push(1);
+      return Effect.succeed(runs.length === 1 ? 1 : 0);
+    },
+  };
+};
 
 const repositoryServices = (database: D1Service) =>
   messageRepositoryD1().pipe(Layer.provide(Layer.succeed(D1, database)));
@@ -94,34 +122,38 @@ describe("D1 event ingestion", () => {
 
     expect(runs).toHaveLength(0);
     expect(batches).toHaveLength(1);
-    expect(batches[0]?.[0]?.query).toContain("protocol_events");
-    expect(batches[0]?.at(-1)?.query).toContain("sync_state");
+    expect(batches[0]).toHaveLength(7);
+    expect(batches[0]?.at(-1)?.query).toContain("protocol_events");
+    expect(batches[0]?.at(-2)?.query).toContain("sync_state");
   });
 
   test("does not write duplicate events or advance the cursor", async () => {
     const runs: number[] = [];
     const batches: D1Statement[][] = [];
+    const batchChanges: number[][] = [];
     const repository = await Effect.runPromise(
       Effect.provide(
         Effect.service(MessageRepository),
-        repositoryServices(makeDatabase(runs, batches))
+        repositoryServices(makeDatabase(runs, batches, false, 1, batchChanges))
       )
     );
 
     await Effect.runPromise(repository.ingestEvent(makeEvent()));
+    await Effect.runPromise(repository.ingestEvent(makeEvent()));
 
-    expect(batches).toHaveLength(1);
-    expect(batches[0]).toHaveLength(8);
-    expect(batches[0]?.[1]?.query).toContain("protocol_events");
+    expect(batches).toHaveLength(2);
+    expect(batchChanges[0]).toEqual([1, 1, 1, 1, 1, 1, 1]);
+    expect(batchChanges[1]).toEqual([0, 0, 0, 0, 0, 0, 0]);
   });
 
   test("retries the entire ingest batch after a failure", async () => {
     const runs: number[] = [];
     const batches: D1Statement[][] = [];
+    const batchChanges: number[][] = [];
     const repository = await Effect.runPromise(
       Effect.provide(
         Effect.service(MessageRepository),
-        repositoryServices(makeDatabase(runs, batches, true))
+        repositoryServices(makeDatabase(runs, batches, true, 1, batchChanges))
       )
     );
 
@@ -132,5 +164,6 @@ describe("D1 event ingestion", () => {
 
     expect(first._tag).toBe("Failure");
     expect(batches).toHaveLength(2);
+    expect(batchChanges).toEqual([[1, 1, 1, 1, 1, 1, 1]]);
   });
 });

@@ -207,20 +207,14 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
           Effect.gen(function* ingestEvent() {
             const receivedAt = `${new Date().toISOString()}-${crypto.randomUUID()}`;
             const eventIsNew =
-              "EXISTS (SELECT 1 FROM protocol_events WHERE external_id = ? AND received_at = ?)";
+              "NOT EXISTS (SELECT 1 FROM protocol_events WHERE external_id = ?)";
             yield* database.batch([
-              {
-                parameters: [event.id, receivedAt, event.message.externalId],
-                query:
-                  "INSERT OR IGNORE INTO protocol_events (external_id, event_type, received_at, payload_hash) VALUES (?, 'message', ?, ?)",
-              },
               {
                 parameters: [
                   event.message.conversationId,
                   event.message.conversationId,
                   event.message.sentAt.toISOString(),
                   event.id,
-                  receivedAt,
                 ],
                 query: `INSERT OR IGNORE INTO conversations (id, title, last_message_at, unread_count) SELECT ?, ?, ?, 0 WHERE ${eventIsNew}`,
               },
@@ -229,7 +223,6 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
                   event.message.sentAt.toISOString(),
                   event.message.conversationId,
                   event.id,
-                  receivedAt,
                 ],
                 query: `UPDATE conversations SET last_message_at = ? WHERE id = ? AND ${eventIsNew}`,
               },
@@ -238,7 +231,6 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
                   event.message.senderId,
                   event.message.senderId,
                   event.id,
-                  receivedAt,
                 ],
                 query: `INSERT OR IGNORE INTO participants (id, address) SELECT ?, ? WHERE ${eventIsNew}`,
               },
@@ -247,17 +239,8 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
                   event.message.conversationId,
                   event.message.senderId,
                   event.id,
-                  receivedAt,
                 ],
                 query: `INSERT OR IGNORE INTO conversation_participants (conversation_id, participant_id) SELECT ?, ? WHERE ${eventIsNew}`,
-              },
-              {
-                parameters: [
-                  event.message.conversationId,
-                  event.message.senderId,
-                ],
-                query:
-                  "INSERT OR IGNORE INTO conversation_participants (conversation_id, participant_id) VALUES (?, ?)",
               },
               {
                 parameters: [
@@ -270,18 +253,17 @@ export const messageRepositoryD1 = (staleAfterMs = 300_000) =>
                   event.message.sentAt.toISOString(),
                   event.message.outgoing ? 1 : 0,
                   event.id,
-                  receivedAt,
                 ],
                 query: `INSERT OR IGNORE INTO messages (id, conversation_id, sender_id, external_id, text, transport, sent_at, outgoing) SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE ${eventIsNew}`,
               },
               {
-                parameters: [
-                  event.id,
-                  new Date().toISOString(),
-                  event.id,
-                  receivedAt,
-                ],
+                parameters: [event.id, new Date().toISOString(), event.id],
                 query: `INSERT OR REPLACE INTO sync_state (key, cursor, updated_at) SELECT 'google-messages-events', ?, ? WHERE ${eventIsNew}`,
+              },
+              {
+                parameters: [event.id, receivedAt, event.message.externalId],
+                query:
+                  "INSERT OR IGNORE INTO protocol_events (external_id, event_type, received_at, payload_hash) VALUES (?, 'message', ?, ?)",
               },
             ]);
           }).pipe(
