@@ -8,6 +8,6 @@ Upstream: `https://github.com/mautrix/gmessages`, package `go.mau.fi/mautrix-gme
 
 ## Source Offer
 
-The source offer must identify the exact deployed revisions, not a mutable branch, tag, or placeholder. For the currently reviewed source, the adapter is at repository commit https://github.com/mynameistito/gmessages-cf/commit/93c9ea8e92959d48c3d94daf0130d7c3777ef5f5 and the pinned upstream is at https://github.com/mautrix/gmessages/commit/9743919f4884327db998fe0f227c073f3f3aceb3. The deployed service must retain matching source for every revision and expose these exact URLs through its public source-offer notice.
+The source offer must identify the exact deployed revisions, not a mutable branch, tag, or placeholder. For the currently reviewed source, the adapter is at repository commit https://github.com/mynameistito/gmessages-cf/commit/ced8f830b2652c2cdcba79f11af32b263d1aa1dc and the pinned upstream is at https://github.com/mautrix/gmessages/commit/9743919f4884327db998fe0f227c073f3f3aceb3. The deployed service must retain matching source for every revision and expose these exact URLs through its public source-offer notice.
 
 Legal review of the final notice and hosting arrangement is pending. Real-mode production must not be enabled on the basis of this documentation alone.
