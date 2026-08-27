@@ -18,7 +18,7 @@ The real `libgm` daemon, D1/R2 adapters, Access resources, Durable Object sessio
 
 ## Local Development
 
-Requirements: Bun and Docker Desktop on Windows.
+Requirements: Bun, Docker Desktop on Windows, and Git with submodule support.
 
 ```powershell
 bun install
@@ -26,6 +26,8 @@ bun run typecheck
 bun run check
 bun alchemy dev
 ```
+
+If cloning the repository, initialize the pinned upstream adapter source with `git clone --recurse-submodules` or `git submodule update --init --recursive`.
 
 Local development defaults to fake mode and `AccessAuthenticationTest`; it needs no Google account or credentials. Alchemy deployments default to `GMESSAGES_AUTH_MODE=access` and require `GMESSAGES_ACCESS_TEAM_DOMAIN`, `GMESSAGES_ACCESS_AUDIENCE`, and `GMESSAGES_SESSION_KEY` (a base64-encoded 32-byte key). Production validates `Cf-Access-Jwt-Assertion` rather than accepting the local bearer token.
 

@@ -1,7 +1,8 @@
 FROM golang:1.26 AS adapter
 WORKDIR /src
 COPY gmessages ./gmessages
-RUN cd gmessages && go build -o /out/gmessages-adapter ./cmd/server
+COPY adapter ./adapter
+RUN cd adapter && go build -o /out/gmessages-adapter ./cmd/server
 
 FROM oven/bun:1
 COPY --from=adapter /out/gmessages-adapter /usr/local/bin/gmessages-adapter
