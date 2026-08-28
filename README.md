@@ -2,7 +2,7 @@
 
 Cloudflare-native Google Messages MCP service. It exposes a small Streamable HTTP MCP surface for one personal, authenticated message session. Fake mode is the credential-free supported path. Real mode is explicitly configured and remains blocked until legal review, integration, source-offer, and operational gates are complete.
 
-> **Disclaimer:** This is an unofficial, experimental third-party client for Google Messages. It is not made, endorsed, or supported by Google. The linked-device protocol is undocumented and may break or trigger account restrictions. Use only with an account and data you are authorized to use, follow Google's terms and applicable carrier terms, and do not enable real mode for production without completing the reviews and controls in `docs/compliance.md`, `docs/licensing.md`, and `docs/runbook.md`.
+> **Disclaimer:** This is an unofficial, experimental third-party client for Google Messages. It is not made, endorsed, or supported by Google. The linked-device protocol is undocumented and may break or trigger account restrictions. Use only with an account and data you are authorized to use, follow Google's terms and applicable carrier terms, and do not enable real mode for production without completing the reviews and controls in [`docs/compliance.md`](docs/compliance.md), [`docs/licensing.md`](docs/licensing.md), and [`docs/runbook.md`](docs/runbook.md).
 
 ## Current Slice
 
