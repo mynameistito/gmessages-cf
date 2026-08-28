@@ -78,19 +78,34 @@ QR pairing is preferred when Google Messages offers it:
 3. Render the URL locally with `qrencode -t ANSIUTF8` and scan it from Google Messages linked-device settings. Never use an online QR generator.
 4. Poll status until `paired` is `true`.
 
-If QR pairing is unavailable, use the Gaia account-pairing endpoint. In the same browser profile where the Google account is signed in, open `https://messages.google.com`, then open browser developer tools and go to **Application > Storage > Cookies > https://messages.google.com**. Export the cookie **names and values** as a JSON object in this shape:
+If QR pairing is unavailable, use the Gaia account-pairing endpoint. In the same browser profile where the Google account is signed in, open `https://messages.google.com`, then open browser developer tools and go to **Application > Storage > Cookies > https://messages.google.com**. Export the cookie **names and values**. The adapter requires `SID`, `HSID`, `OSID`, `SSID`, `APISID`, and `SAPISID`; include `__Secure-1PSIDTS` when it is present. The request body must wrap the map in a top-level `cookies` property:
 
 ```json
 {
   "cookies": {
     "SID": "...",
     "HSID": "...",
-    "SSID": "..."
+    "OSID": "...",
+    "SSID": "...",
+    "APISID": "...",
+    "SAPISID": "...",
+    "__Secure-1PSIDTS": "..."
   }
 }
 ```
 
-Do not export cookies from another site, include them in screenshots, or paste them into chat. Save the file locally as the gitignored `cookies.json`, send it only in the authenticated request to `POST https://<admin-hostname>/admin/pair/account/start`, then delete it securely. Poll `/admin/pair/status`; when `verificationEmoji` appears, select the matching emoji in the Google Messages confirmation prompt on the phone.
+Do not include cookie domains, paths, expiry values, or browser export metadata. Do not export cookies from another site, include them in screenshots, or paste them into chat. Save the file locally as the gitignored `cookies.json`, send it only in an authenticated request, then delete it securely.
+
+For local development, the request is:
+
+```powershell
+curl.exe -sS -X POST http://127.0.0.1:1337/admin/pair/account/start `
+  -H "Content-Type: application/json" `
+  -H "x-gmessages-test-token: local-admin-token" `
+  --data-binary "@cookies.json"
+```
+
+For a remote deployment, send the same body to `https://<admin-hostname>/admin/pair/account/start` from an authenticated admin session. Do not send the MCP Service Auth token to this endpoint. Poll `GET /admin/pair/status`; when `verificationEmoji` appears, select the matching emoji in the Google Messages confirmation prompt on the phone.
 
 Google session cookies are equivalent to account credentials. If they were committed, shared, or exposed in logs, sign out the browser session and revoke/rotate the affected Google sessions before continuing.
 
