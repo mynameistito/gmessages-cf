@@ -68,14 +68,14 @@ The upstream protocol is unofficial and can change. This project will only use l
 
 ## Documents
 
-- `LICENSE`: GNU Affero General Public License, version 3 or later
-- `NOTICE`: project and upstream attribution plus source revisions
-- `SECURITY.md`: private vulnerability reporting
-- `CONTRIBUTING.md`: credential-free development and contribution guidance
-- `docs/architecture.md`: boundaries, lifecycle, and recovery design
-- `docs/security.md`: Access, secrets, storage, and threat model
-- `docs/licensing.md`: upstream attribution and AGPL decision
-- `docs/compliance.md`: required Terms of Service review checkpoint
-- `docs/runbook.md`: deployment, recovery, rotation, rollback, and local gates
-- `docs/observability.md`: safe metrics and alert thresholds
-- `docs/yaak.md`: Yaak workspace import and local pairing requests
+- [`LICENSE`](LICENSE): GNU Affero General Public License, version 3 or later
+- [`NOTICE`](NOTICE): project and upstream attribution plus source revisions
+- [`SECURITY.md`](SECURITY.md): private vulnerability reporting
+- [`CONTRIBUTING.md`](CONTRIBUTING.md): credential-free development and contribution guidance
+- [`docs/architecture.md`](docs/architecture.md): boundaries, lifecycle, and recovery design
+- [`docs/security.md`](docs/security.md): Access, secrets, storage, and threat model
+- [`docs/licensing.md`](docs/licensing.md): upstream attribution and AGPL decision
+- [`docs/compliance.md`](docs/compliance.md): required Terms of Service review checkpoint
+- [`docs/runbook.md`](docs/runbook.md): deployment, recovery, rotation, rollback, and local gates
+- [`docs/observability.md`](docs/observability.md): safe metrics and alert thresholds
+- [`docs/yaak.md`](docs/yaak.md): Yaak workspace import and local pairing requests
