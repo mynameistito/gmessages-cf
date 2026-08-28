@@ -2,6 +2,8 @@
 
 Cloudflare-native Google Messages MCP service. It exposes a small Streamable HTTP MCP surface for one personal, authenticated message session. Fake mode is the credential-free supported path. Real mode is explicitly configured and remains blocked until legal review, integration, source-offer, and operational gates are complete.
 
+> **Disclaimer:** This is an unofficial, experimental third-party client for Google Messages. It is not made, endorsed, or supported by Google. The linked-device protocol is undocumented and may break or trigger account restrictions. Use only with an account and data you are authorized to use, follow Google's terms and applicable carrier terms, and do not enable real mode for production without completing the reviews and controls in `docs/compliance.md`, `docs/licensing.md`, and `docs/runbook.md`.
+
 ## Current Slice
 
 This repository currently provides:
@@ -14,7 +16,7 @@ This repository currently provides:
 - Alchemy-owned Worker, D1, R2, and Durable Object declarations
 - D1 schema for messages, sync, attachments, reactions, receipts, and outbox records
 
-The real `libgm` daemon, D1/R2 adapters, Access resources, Durable Object session boundary, encrypted recovery, and event ingestion are implemented behind explicit real-mode configuration. Pairing UI and full integration suites remain future milestones; this does not represent legal approval or Google support.
+The real `libgm` daemon, D1/R2 adapters, Access resources, Durable Object session boundary, encrypted recovery, and event ingestion are implemented behind explicit real-mode configuration. Pairing is an authenticated operator flow on a separate admin hostname; a pairing UI and full integration suites remain future milestones. This does not represent legal approval or Google support.
 
 ## Local Development
 
@@ -29,7 +31,7 @@ bun alchemy dev
 
 If cloning the repository, initialize the pinned upstream adapter source with `git clone --recurse-submodules` or `git submodule update --init --recursive`.
 
-Local development defaults to fake mode and `AccessAuthenticationTest`; it needs no Google account or credentials. Alchemy deployments default to `GMESSAGES_AUTH_MODE=access` and require `GMESSAGES_ACCESS_TEAM_DOMAIN`, `GMESSAGES_ACCESS_AUDIENCE`, and `GMESSAGES_SESSION_KEY` (a base64-encoded 32-byte key). Production validates `Cf-Access-Jwt-Assertion` rather than accepting the local bearer token.
+Local development defaults to fake mode and `AccessAuthenticationTest`; it needs no Google account or credentials. Alchemy deployments default to `GMESSAGES_AUTH_MODE=access` and require the MCP hostname, separate admin hostname and admin email, Access team domain and audience, IPC token, and session key (a base64-encoded 32-byte key). Production validates `Cf-Access-Jwt-Assertion` rather than accepting the local bearer token. See `docs/deployment.md` for the complete configuration.
 
 ## Architecture
 

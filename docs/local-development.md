@@ -26,9 +26,11 @@ For a real local pairing session, put those values in the gitignored `.env`, set
 ```bash
 session_key="$(openssl rand -base64 32 | tr -d '=\n')"
 ipc_token="$(openssl rand -hex 32)"
-printf 'GMESSAGES_AUTH_MODE=test\nGMESSAGES_MODE=real\nGMESSAGES_ACCESS_TEAM_DOMAIN=https://local-development.invalid\nGMESSAGES_ACCESS_AUDIENCE=local-development\nGMESSAGES_IPC_TOKEN=%s\nGMESSAGES_SESSION_KEY=%s\n' "$ipc_token" "$session_key" > .env
+printf 'GMESSAGES_AUTH_MODE=test\nGMESSAGES_MODE=real\nGMESSAGES_ACCESS_TEAM_DOMAIN=https://local-development.invalid\nGMESSAGES_ACCESS_AUDIENCE=local-development\nGMESSAGES_ADMIN_HOSTNAME=127.0.0.1\nGMESSAGES_IPC_TOKEN=%s\nGMESSAGES_SESSION_KEY=%s\n' "$ipc_token" "$session_key" > .env
 bun alchemy dev --profile mynameistito
 ```
+
+The command sets `GMESSAGES_ADMIN_HOSTNAME=127.0.0.1` for local pairing. The admin hostname must match the hostname used by the pairing requests; the MCP service token is not accepted on admin routes.
 
 Then use the local admin token to start pairing. The response contains the QR payload URL, not an image. Render it locally with `qrencode` and scan the terminal from Google Messages linked-device settings. Do not paste the URL into an online QR generator:
 
@@ -62,5 +64,7 @@ curl -sS http://127.0.0.1:1337/admin/pair/status \
 ```
 
 After pairing, use `/mcp` with `x-gmessages-test-token: local-mcp-token`. Keep the same session key when restarting; changing it requires pairing again.
+
+Real mode uses a private Google account session and is not a production-readiness signal. Do not use account cookies or personal message data in tests, commits, logs, screenshots, or support requests. Review `docs/compliance.md` and `docs/licensing.md` before any remote deployment.
 
 `messages.send` requires an idempotency key. The outbox schema has a unique constraint so retries can resume without delivering twice; provider delivery remains outside the database transaction.

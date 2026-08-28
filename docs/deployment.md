@@ -1,6 +1,6 @@
 # Deployment
 
-Alchemy is the infrastructure source of truth. Set the Cloudflare profile, choose a stage, and review the plan before deploying:
+Alchemy is the infrastructure source of truth. Configure the target stage, review the plan, and deploy only after the release gates are complete:
 
 ```powershell
 bun install
@@ -14,6 +14,8 @@ The stack creates one stage-specific service token and a dedicated `non_identity
 The primary Durable Object serializes session ownership, reconnects, outbound operations, and container restart coordination. Container storage is disposable. Real mode must encrypt session material before storing it; fake mode never creates or needs Google credentials.
 
 Set `GMESSAGES_MODE=real`, `GMESSAGES_IPC_TOKEN`, and `GMESSAGES_SESSION_KEY` for the real adapter. Clone with `git clone --recurse-submodules` or run `git submodule update --init --recursive` before building so the pinned `gmessages` source is present. Real mode requires a paired encrypted session envelope; pairing and reauthentication are separate operator flows and are not exposed through MCP.
+
+The MCP hostname accepts only the stage Service Auth token. The admin hostname accepts only the configured operator email through Cloudflare Access and is the sole public route for `/admin/pair/start`, `/admin/pair/status`, and `/admin/pair/account/start`. Keep the hostnames separate and never send the MCP service token to admin routes. `/health` is authenticated and reports only coarse service state.
 
 ## Release Metadata
 

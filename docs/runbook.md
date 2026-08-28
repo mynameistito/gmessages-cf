@@ -2,11 +2,12 @@
 
 ## Deploy
 
-1. Set `GMESSAGES_HOSTNAME`, `GMESSAGES_ACCESS_TEAM_DOMAIN`, and `GMESSAGES_ACCESS_AUDIENCE` for the target stage.
-2. Provision `GMESSAGES_SESSION_KEY` as a base64-encoded 32-byte secret. Do not put it in source control, D1, R2, or command history.
-3. Set `GMESSAGES_MODE=real` and provision `GMESSAGES_IPC_TOKEN` through the deployment secret mechanism.
-4. Review the Alchemy plan, then run `bun alchemy deploy --stage <stage>`.
-5. Confirm `/health` is reachable only through the intended Access application and shows no credentials or message data.
+1. Set `GMESSAGES_HOSTNAME` to the MCP hostname, `GMESSAGES_ADMIN_HOSTNAME` to a separate admin hostname, and `GMESSAGES_ADMIN_EMAIL` to the sole operator email allowed to pair.
+2. Set `GMESSAGES_ACCESS_TEAM_DOMAIN` and `GMESSAGES_ACCESS_AUDIENCE` for the target Cloudflare Access application.
+3. Provision `GMESSAGES_SESSION_KEY` as a base64-encoded 32-byte secret. Do not put it in source control, D1, R2, or command history.
+4. Set `GMESSAGES_MODE=real` and provision `GMESSAGES_IPC_TOKEN` through the deployment secret mechanism.
+5. Review the Alchemy plan, then run `bun alchemy deploy --stage <stage>`.
+6. Confirm `/health` is reachable only through the intended Access application and shows no credentials or message data.
 
 ## Recover
 
@@ -22,7 +23,7 @@
 
 ```powershell
 Invoke-RestMethod -Method Post `
-  -Uri http://localhost:1337/admin/pair/start `
+  -Uri http://127.0.0.1:1337/admin/pair/start `
   -Headers @{ "x-gmessages-test-token" = "local-admin-token" }
 ```
 
@@ -31,7 +32,7 @@ Invoke-RestMethod -Method Post `
 
 ```powershell
 Invoke-RestMethod `
-  -Uri http://localhost:1337/admin/pair/status `
+  -Uri http://127.0.0.1:1337/admin/pair/status `
   -Headers @{ "x-gmessages-test-token" = "local-admin-token" }
 ```
 

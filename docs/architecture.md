@@ -2,6 +2,8 @@
 
 The application has an imperative shell (Worker, Container, D1/R2 adapters) around an Effect functional core. Domain schemas and application services do not import Cloudflare globals.
 
+The Worker exposes three distinct HTTP surfaces: authenticated `/mcp` requests are limited to the MCP hostname and service principal; `/admin/pair/*` requests are limited to the separate admin hostname and user principal; `/health` is authenticated and contains only coarse state. Attachments remain authenticated application responses and are private R2 objects.
+
 The primary session is coordinated by one Durable Object instance named `primary`. It serializes pairing, reconnect, and outbound operations. Container storage is disposable. The real adapter must serialize `libgm.AuthData`, encrypt the envelope with an application key held as a Cloudflare secret, and store ciphertext outside the Container before claiming restart recovery is complete.
 
 The implementation uses localhost HTTP IPC because it is portable across Docker Desktop and Cloudflare Containers, observable during development, and supports request/response plus authenticated SSE events. Unix sockets are not assumed to exist in every target runtime. The IPC schema is Effect Schema validated at the TypeScript boundary.
