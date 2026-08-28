@@ -64,7 +64,7 @@ Messages are sensitive data. D1 stores metadata and text; R2 stores private atta
 
 ## Protocol Status
 
-The upstream protocol is unofficial and can change. This project will only use legitimate linked-device authentication. It will not bypass CAPTCHA, anti-abuse controls, rate limits, device security, or account enforcement. See `docs/protocol.md` for the current research record and `docs/licensing.md` for the AGPL boundary.
+The upstream protocol is unofficial and can change. This project will only use legitimate linked-device authentication. It will not bypass CAPTCHA, anti-abuse controls, rate limits, device security, or account enforcement. See [`docs/protocol.md`](docs/protocol.md) for the current research record and [`docs/licensing.md`](docs/licensing.md) for the AGPL boundary.
 
 ## Documents
 
