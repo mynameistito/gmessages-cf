@@ -11,8 +11,13 @@ body:
   text: |-
     {
       "cookies": {
+        "SID": "PASTE_COOKIE_VALUE",
+        "HSID": "PASTE_COOKIE_VALUE",
+        "OSID": "PASTE_COOKIE_VALUE",
+        "SSID": "PASTE_COOKIE_VALUE",
+        "APISID": "PASTE_COOKIE_VALUE",
         "SAPISID": "PASTE_COOKIE_VALUE",
-        "__Secure-1PSID": "PASTE_COOKIE_VALUE"
+        "__Secure-1PSIDTS": "PASTE_COOKIE_VALUE"
       }
     }
 bodyType: application/json
